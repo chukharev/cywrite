@@ -1,0 +1,42 @@
+CyWrite
+
+Copyright ©2012-2020, Iowa State University Research Foundation, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+
+Trademark use notice:
+
+"Cy" is a trademark of Iowa State University of Science and Technology.
+Used with permission. Users of the CyWrite software must use Iowa State
+University brand elements and cannot customize CyWrite to look like it is a
+product they developed.
+
+See http://www.brandmarketing.iastate.edu/brand-elements/typography/
+
+
+Citation:
+
+If you use the CyWrite software for research purposes, please kindly cite
+the following article:
+
+Chukharev-Hudilainen, E., Saricaoglu, A., Torrance, M., & Feng, H. (2019).
+COMBINED DEPLOYABLE KEYSTROKE LOGGING AND EYETRACKING FOR INVESTIGATING L2
+WRITING FLUENCY. Studies in Second Language Acquisition, 41(3), 583-604.
+doi:10.1017/S027226311900007X
