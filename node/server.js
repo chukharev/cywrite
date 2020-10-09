@@ -64,13 +64,13 @@ Async.series([
       var token = req.param("token");
       var z = req.param("z");
       var clone = new CW.Clone({ role: 'playback', original_token: token, seek_z: z });
-      res.redirect('viewer?'+clone.token);
+      res.redirect(302, 'viewer?'+clone.token);
     });
 
     app.use('/api/v1', api_v1);
     app.use('/api/research', api_research);
 
-    app.get('/', (req, res) => res.redirect('/w/debug', 302)); 
+    app.get('/', (req, res) => res.redirect(302, '/w/debug')); 
 
     var port = CW.config.port || 9999;
     server.listen(port);
