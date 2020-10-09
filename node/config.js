@@ -22,7 +22,6 @@ module.exports = {
   sqlite_current: __dirname + '/cur',
   sqlite_archive: __dirname + '/arc',
   sqlite_graph: __dirname + '/graph',
-  base_url: 'https://cw1.linguatorium.com', // fixme
   log_level_console: '>>>'
 };
 

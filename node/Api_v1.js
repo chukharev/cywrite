@@ -14,7 +14,19 @@ module.exports = function(CyWrite) {
     .all(function(req, res) {
       const clone = new CyWrite.Clone({ config: req.body ? req.body : null });
       clone.log('info', 'clone created', clone.config);
-      res.json({ url: CyWrite.config.base_url+'/w/editor?'+clone.token, token: clone.token });
+      res.json({ url: '/w/editor?'+clone.token, token: clone.token });
+    });
+
+  router.route('/live')
+    .all(function(req, res) {
+      res.json(Object.keys(CyWrite.clones).map((x) => { return { token: x, metadata: CyWrite.clones[x].metadata, config: CyWrite.clones[x].config } }));
+    });
+
+  router.route('/archive')
+    .all(function(req, res) {
+      CyWrite.summary_db.all('select * from sessions;', [], (err, rows) => {
+        res.json(rows);
+      });
     });
 
   /* TODO other API methods go here  */

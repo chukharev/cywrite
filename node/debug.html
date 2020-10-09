@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <title>CyWrite Debug Page</title>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.min.js"></script>
+
+    <script>
+      function launch() {
+        $.ajax({
+          url: "/api/v1/launch",
+          type: 'POST',
+          data: JSON.stringify(
+            { template: [ { ro: 1, text: 'Hello, world!' }, "" ] }
+          ),
+          contentType: 'application/json',
+          dataType: 'json',
+          success: function(data) {
+            console.log(data);
+            window.open(data.url, "_blank");
+          }
+        });
+      }
+      function live() {
+        $.ajax({
+          url: "/api/v1/live",
+          type: 'get',
+          dataType: 'json',
+          success: function(data) {
+            console.log(data);
+            if (data && data.length) {
+              $('#view').html(data.map((x) => ("<a href=\"/w/viewer?"+x.token+"\">"+x.token+"</a><br>")).join(""));
+            } else {
+              $('#view').html("No live sessions.");
+            }
+          }
+        });
+      }
+      function archive() {
+        $.ajax({
+          url: "/api/v1/archive",
+          type: 'get',
+          dataType: 'json',
+          success: function(data) {
+            console.log(data);
+            if (data && data.length) {
+              $('#view').html(data.map((x) => ("<a href=\"/w/viewer?"+x.token+"-X\">"+x.token+"</a><br>")).join(""));
+            } else {
+              $('#view').html("No archived sessions.");
+            }
+          }
+        });
+      }
+    </script>
+  </head>
+
+  <body>
+
+  <h1>Welcome to CyWrite</h1>
+
+  <p>This page is designed for demonstration purposes only. It should not be used in a production environment.</p>
+
+  <p><button onclick="launch()">Launch an editing session</button>
+  <p><button onclick="live()">View live editing sessions</button>
+  <p><button onclick="archive()">View archived sessions</button>
+
+  <div id="view"></div>
+
+  </body>
+</html>

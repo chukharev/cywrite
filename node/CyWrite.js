@@ -426,8 +426,8 @@
       var x = e.clientX - offset.left;
       var y = e.clientY - offset.top;
       var r = {
-        x: x,
-        y: y,
+        x: parseInt(x),
+        y: parseInt(y),
         cur_col: parseInt(x / this.char_width),
         cur_row: parseInt(y / (this.char_height+this.interline))
       };

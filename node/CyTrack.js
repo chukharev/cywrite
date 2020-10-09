@@ -1,5 +1,3 @@
-// CyTrack module
-// See LICENSE.txt
 // Uses GazePoint GP3
 (function(CW) {
 
@@ -141,9 +139,9 @@
 
     gp_calc_fixation: function(fix) {
       if (!this.screen_size || !this.screen_delta) return;
-      var x = parseInt(fix.fpogx * this.screen_size.width) + this.screen_size.x;
+      var x = (fix.fpogx * this.screen_size.width) + this.screen_size.x;
       x += this.screen_delta.x - this.win.x;
-      var y = parseInt(fix.fpogy * this.screen_size.height) + this.screen_size.y;
+      var y = (fix.fpogy * this.screen_size.height) + this.screen_size.y;
       y += this.screen_delta.y - this.win.y;
       return (this.display.mouse_xy(this.display.viewport, {clientX: x, clientY: y}));
     },

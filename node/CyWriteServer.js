@@ -1,7 +1,5 @@
 "use strict";
 // CyWrite Server-side Classes
-// See LICENSE.txt
-// Uses GazePoint GP3
 
 const
   util         = require('util'),
@@ -29,9 +27,7 @@ CW.module_exists = function (name) {
 };
 
 
-/*FIXME
-
-if (CW.config.features.hunspell && CW.module_exists('nodehun')) {
+/*if (CW.config.features.hunspell && CW.module_exists('nodehun')) {
   var nodehun = require('nodehun');
   var dir = 'node_modules/nodehun/examples/dictionaries/en_US';
   var affbuf = fs.readFileSync(dir+'/en_US.aff');
@@ -436,10 +432,10 @@ CW.extend(CW.Clone.prototype, {
     this.log('info', 'load_document');
     this.db3 = new sqlite3.Database(CW.config.sqlite_current+'/'+this.token);
     this.db3.run("CREATE TABLE act (z INTEGER PRIMARY KEY, z_transaction INTEGER, csn INTEGER, t INTEGER, k TEXT, json TEXT, undo TEXT, chkpnt INTEGER)");
-    this.db3.run("CREATE TABLE props (name PRIMARY KEY, value TEXT)");
+    this.db3.run("CREATE TABLE props (name TEXT PRIMARY KEY, value TEXT)");
     this.db3.run("CREATE TABLE key (z INTEGER PRIMARY KEY, t INTEGER, k TEXT, code INTEGER, z_act INTEGER, iki INTEGER, dur INTEGER)");
     this.db3.run("CREATE TABLE eye (z INTEGER PRIMARY KEY, t INTEGER, k TEXT, z_act INTEGER, start INTEGER, dur INTEGER, x INTEGER, y INTEGER, json TEXT)");
-    this.db3.run("CREATE TABLE document (kind PRIMARY KEY, json TEXT)");
+    this.db3.run("CREATE TABLE document (kind TEXT PRIMARY KEY, json TEXT)");
     this.db3_do("INSERT INTO props(name, value) VALUES(?, ?)", ["config", JSON.stringify(this.config)]);
 
     if (old_document && old_document.token) {
@@ -1264,7 +1260,7 @@ CW.utils.sanitize_db3 = function(token, callback) {
 CW.utils.archive_db3 = function(token, callback) {
   fs.rename(CW.config.sqlite_current+'/'+token, CW.config.sqlite_archive+'/'+token, function(err) {
     console.log('*** archive_db3', token, err || 'ok');
-    if (callback) callback();
+    CW.utils.summarize_db3(token, callback);
   });
 }
 
@@ -1281,6 +1277,61 @@ CW.utils.sanitize_all_db3 = function (callback) {
   }
 };
 
+CW.utils.summarize_db3 = function(token, callback) {
+  if (!callback) callback = function() {};
+  let fname = CW.config.sqlite_archive+'/'+token;
+  let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
+    if (err) {
+      console.log('*** summarize_db3', token, 'open failed');
+      if (callback) callback(err);
+      return;
+    }
+    console.log('+ summarize_db3', token);
+    let props = {};
+    db.all('select * from props;', [], function(err, rows) {
+      if (rows && rows.length) {
+        for (let row of rows) {
+          props[row.name] = row.value;
+        }
+      }
+      db.all('select * from act order by z asc limit 1;', [], function(err, rows) {
+        if (rows && rows.length) props.t0 = rows[0].t;
+        db.all('select * from act order by z desc limit 1;', [], function(err, rows) {
+          if (rows && rows.length) props.t9 = rows[0].t;
+          db.all('select count(*) as cnt from act where k=?;', ['edit'], function(err, rows) {
+            if (rows && rows.length) props.n_edits = rows[0].cnt;
+            db.close();
+            CW.summary_db.serialize(() => {
+              CW.summary_db.run('delete from sessions where token=?', [token])
+                .run('insert into sessions(token, initial_token, previous_token, config, metadata, t0, t9, n_edits) values (?, ?, ?, ?, ?, ?, ?, ?);',
+                  [token, props.initial_token, props.previous_token, props.config, props.metadata, props.t0, props.t9, props.n_edits], () => { if (callback) callback()});
+            });
+          });
+        });
+      });
+    });
+  });
+};
+
+CW.utils.summarize_all_db3 = function(callback) {
+  let files = fs.readdirSync(CW.config.sqlite_archive);
+  CW.summary_db.all('select token from sessions', function(err, rows) {
+    let sessions = rows.map(x => x.token);
+    console.log('*** Summarizing archived db3 files...');
+    async.eachSeries(files, function(file, callback) {
+      if (!sessions.includes(file))
+        CW.utils.summarize_db3(file, callback);
+      else callback();
+    }, async.eachSeries(sessions, function(session, callback) {
+      if (!files.includes(session)) {
+        console.log('+ deleting '+session);
+        CW.summary_db.run('delete from sessions where token=?', [session], callback);
+      }
+      else callback();
+    }, callback));
+  });
+};
+          
 CW.utils.to_html = function(p, options) {
   if (!options) options = {};
   if (CW.is_array(p)) {
@@ -1323,3 +1374,19 @@ CW.utils.to_txt = function(p, options) {
   }
   return p.text;
 }
+
+CW.utils.open_summary_db3 = function(callback) {
+  if (CW.summary_db) return callback();
+  console.log('*** Opening summary db...');
+  CW.summary_db = new sqlite3.Database('summary.db3', function(err) {
+    if (err) {
+      console.log('! Failed to open summary db', err);
+    } else {
+      CW.summary_db.run('CREATE TABLE sessions(token TEXT PRIMARY KEY, initial_token TEXT, previous_token TEXT, config TEXT, metadata TEXT, t0 INTEGER, t9 INTEGER, n_edits INTEGER);', [], function(err) {
+        callback();
+      });
+    }
+  });
+};
+
+    

@@ -1,20 +1,33 @@
-// CyWrite Server
-// See LICENSE.txt
+"use strict";
 
-var express = require('express'), sockjs = require('sockjs'), CW = require('./CyWriteServer.js'),
-cookieParser = require('cookie-parser'), qs=require('qs'), os=require('os'),
-bodyParser = require('body-parser'), fs=require('fs'), async = require('async');
-api_v1 = require('./Api_v1.js')(CW), api_research = require('./Api_research.js')(CW);
+const
+  express = require('express'),
+  sockjs = require('sockjs'),
+  CW = require('./CyWriteServer.js'),
+  cookieParser = require('cookie-parser'),
+  qs=require('qs'),
+  os=require('os'),
+  bodyParser = require('body-parser'),
+  fs=require('fs'),
+  Async = require('async'),
+  api_v1 = require('./Api_v1.js')(CW),
+  api_research = require('./Api_research.js')(CW);
 
 var app, server;
 
 console.log('*** Initializing...');
 
-var templates={};
-templates.editor = fs.readFileSync(__dirname+'/editor.html', 'utf-8');
+for (let dir of ['cur', 'arc', 'graph', 'logs']) {
+  if (!fs.existsSync(dir)) {
+    console.log('+ Creating dir '+dir);
+    fs.mkdirSync(dir);
+  }
+}
 
-async.series([
+Async.series([
+  CW.utils.open_summary_db3,
   CW.utils.sanitize_all_db3,
+  CW.utils.summarize_all_db3,
 
   function (callback) {
     app = express();
@@ -25,16 +38,10 @@ async.series([
 
     sockjs.createServer().on('connection', function(conn) { CW.accept_connection(conn) }).installHandlers(server, {prefix: node_prefix+'sock'});
 
-    app.use('/w', express.static(__dirname + '/static', {maxAge: 0}));
-    //app.get('/w', function (req, res) { res.sendFile(__dirname + '/index.html', {maxAge: 0}); });
-    //app.get('/w/admin.html', function (req, res) { res.sendFile(__dirname + '/admin.html', {maxAge: 0}); });
-    app.get('/w/CyWrite.js', function (req, res) {  res.sendFile(__dirname + '/CyWrite.js', {maxAge: 0}); });
-    app.get('/w/CyTrack.js', function (req, res) {  res.sendFile(__dirname + '/CyTrack.js', {maxAge: 0}); });
-    app.get('/w/CyWrite.css', function (req, res) {  res.sendFile(__dirname + '/CyWrite.css', {maxAge: 0}); });
-    app.get('/w/editor', function (req, res) {  res.sendFile(__dirname + '/editor.html', {maxAge: 0}); });
-    app.get('/w/viewer', function (req, res) {  res.sendFile(__dirname + '/viewer.html', {maxAge: 0}); });
-    app.get('/w/debug', function (req, res) {  res.sendFile(__dirname + '/debug.html', {maxAge: 0}); });
-    app.get('/w/shutdown.html', function (req, res) {  res.sendFile(__dirname + '/shutdown.html', {maxAge: 0}); });
+    for (let file of ['CyWrite.js', 'CyWrite.css', 'editor.html', 'viewer.html', 'debug.html', 'shutdown.html']) {
+      app.get('/w/'+file, (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
+      if (/\.html$/.test(file)) app.get('/w/'+file.slice(0, -5), (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
+    }
 
     app.get(node_prefix+'/download', function (req, res) {
       var token = req.param("token");
@@ -63,9 +70,12 @@ async.series([
     app.use('/api/v1', api_v1);
     app.use('/api/research', api_research);
 
+    app.get('/', (req, res) => res.redirect('/w/debug', 302)); 
+
     var port = CW.config.port || 9999;
     server.listen(port);
     console.log("*** Init OK");
+    console.log("*** Go to http://localhost:9999/ in your browser to get started");
 
     callback();
   }
