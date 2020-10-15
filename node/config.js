@@ -19,9 +19,11 @@ module.exports = {
     analyze_loaded_paragraphs: 1000,
     analyze_sentence: 1000
   },
-  sqlite_current: __dirname + '/cur',
-  sqlite_archive: __dirname + '/arc',
-  sqlite_graph: __dirname + '/graph',
+  dir_current: __dirname + '/cur',
+  dir_archive: __dirname + '/arc',
+  dir_graph: __dirname + '/graph',
+  dir_summary: __dirname + '/summary',
+  dir_logs: __dirname + '/logs',
   log_level_console: '>>>'
 };
 

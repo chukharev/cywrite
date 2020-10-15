@@ -17,10 +17,13 @@ var app, server;
 
 console.log('*** Initializing...');
 
-for (let dir of ['cur', 'arc', 'graph', 'logs']) {
-  if (!fs.existsSync(dir)) {
-    console.log('+ Creating dir '+dir);
-    fs.mkdirSync(dir);
+for (let param in CW.config) {
+  if (/^dir_/.test(param)) {
+    const dir = CW.config[param];
+    if (!fs.existsSync(dir)) {
+      console.log('+ Creating dir '+dir);
+      fs.mkdirSync(dir);
+    }
   }
 }
 

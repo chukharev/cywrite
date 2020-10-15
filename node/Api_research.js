@@ -18,14 +18,14 @@ module.exports = function(CW) {
   });
   
   router.route('/session/:token/data').get(function(req, res) {
-    res.sendFile(CW.config.sqlite_graph+'/'+req.params.token+'.graph', {maxAge: 0, headers: { 'content-type': 'application/json'}});
+    res.sendFile(CW.config.dir_graph+'/'+req.params.token+'.graph', {maxAge: 0, headers: { 'content-type': 'application/json'}});
   });
 
   var graph_db_processing = {};
   var graphs = {};
 
   function graph_db_status(token, cb) {
-    var fn = CW.config.sqlite_graph+'/'+token+'.graph';
+    var fn = CW.config.dir_graph+'/'+token+'.graph';
     if (token in graph_db_processing) return cb(graph_db_processing[token] > 1 ? 1 : graph_db_processing[token]);
     fs.exists(fn, function(ok) {
       if (!ok) {
@@ -36,7 +36,7 @@ module.exports = function(CW) {
   }
 
   function create_graph_db(token) {
-    var fn = CW.config.sqlite_graph+'/'+token+'.graph';
+    var fn = CW.config.dir_graph+'/'+token+'.graph';
     var cur_data = {}, cur_rows = {}, cur_vars={};
     var summary = {}, annotations = { lookback: [] }, html = {}, calibration = {};
     

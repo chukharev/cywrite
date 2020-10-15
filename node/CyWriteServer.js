@@ -93,7 +93,7 @@ CW.extend(CW.Clone.prototype, {
     this.logger = winston.createLogger({
       transports: [
         new (winston.transports.Console)({level: (this.log_level_console || CW.config.log_level_console || '>>>')}), // fixme
-        new (winston.transports.File)({ filename: 'logs/'+this.token+'.log', level: (this.log_level_file || CW.config.log_level_file || 'info') })
+        new (winston.transports.File)({ filename: CW.config.dir_logs+'/'+this.token+'.log', level: (this.log_level_file || CW.config.log_level_file || 'info') })
       ],
       levels: {'>>>': 4, '<<<': 3, debug: 2, info: 1, error: 0 }
     });
@@ -106,7 +106,7 @@ CW.extend(CW.Clone.prototype, {
     this.cur_t = 0;
     this.cur_z = {};
     this.cleanup();
-    this.db3 = new sqlite3.Database(CW.config.sqlite_archive+'/'+this.original_token);
+    this.db3 = new sqlite3.Database(CW.config.dir_archive+'/'+this.original_token);
     this.db3.all('select * from document where kind=?;', ['initial'], function(err, rows) {
       if (!rows || !rows.length) return that.shutdown();
       var doc = JSON.parse(rows[0].json);
@@ -402,7 +402,7 @@ CW.extend(CW.Clone.prototype, {
 
   retrieve_old_document: function(token, callback) {
     let that = this;
-    let fn = CW.config.sqlite_archive+'/'+token;
+    let fn = CW.config.dir_archive+'/'+token;
     fs.access(fn, fs.F_OK, function(err) {
       if (err) return that.shutdown();
       let db3 = new sqlite3.Database(fn);
@@ -430,7 +430,7 @@ CW.extend(CW.Clone.prototype, {
   load_document: function(old_document) {
     let that=this;
     this.log('info', 'load_document');
-    this.db3 = new sqlite3.Database(CW.config.sqlite_current+'/'+this.token);
+    this.db3 = new sqlite3.Database(CW.config.dir_current+'/'+this.token);
     this.db3.run("CREATE TABLE act (z INTEGER PRIMARY KEY, z_transaction INTEGER, csn INTEGER, t INTEGER, k TEXT, json TEXT, undo TEXT, chkpnt INTEGER)");
     this.db3.run("CREATE TABLE props (name TEXT PRIMARY KEY, value TEXT)");
     this.db3.run("CREATE TABLE key (z INTEGER PRIMARY KEY, t INTEGER, k TEXT, code INTEGER, z_act INTEGER, iki INTEGER, dur INTEGER)");
@@ -1238,7 +1238,7 @@ CW.accept_connection = function(conn) {
 CW.utils = new Object;
 
 CW.utils.sanitize_db3 = function(token, callback) {
-  let fname = CW.config.sqlite_current+'/'+token;
+  let fname = CW.config.dir_current+'/'+token;
   let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
     if (err) {
       console.log('*** sanitize_db3', token, 'open failed');
@@ -1258,14 +1258,14 @@ CW.utils.sanitize_db3 = function(token, callback) {
 }
 
 CW.utils.archive_db3 = function(token, callback) {
-  fs.rename(CW.config.sqlite_current+'/'+token, CW.config.sqlite_archive+'/'+token, function(err) {
+  fs.rename(CW.config.dir_current+'/'+token, CW.config.dir_archive+'/'+token, function(err) {
     console.log('*** archive_db3', token, err || 'ok');
     CW.utils.summarize_db3(token, callback);
   });
 }
 
 CW.utils.sanitize_all_db3 = function (callback) {
-  var files = fs.readdirSync(CW.config.sqlite_current);
+  var files = fs.readdirSync(CW.config.dir_current);
   if (files.length) {
     console.log('*** Sanitizing and archiving db3 files...');
     async.eachSeries(files, function(file, callback) {
@@ -1279,7 +1279,7 @@ CW.utils.sanitize_all_db3 = function (callback) {
 
 CW.utils.summarize_db3 = function(token, callback) {
   if (!callback) callback = function() {};
-  let fname = CW.config.sqlite_archive+'/'+token;
+  let fname = CW.config.dir_archive+'/'+token;
   let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
     if (err) {
       console.log('*** summarize_db3', token, 'open failed');
@@ -1304,7 +1304,8 @@ CW.utils.summarize_db3 = function(token, callback) {
             CW.summary_db.serialize(() => {
               CW.summary_db.run('delete from sessions where token=?', [token])
                 .run('insert into sessions(token, initial_token, previous_token, config, metadata, t0, t9, n_edits) values (?, ?, ?, ?, ?, ?, ?, ?);',
-                  [token, props.initial_token, props.previous_token, props.config, props.metadata, props.t0, props.t9, props.n_edits], () => { if (callback) callback()});
+                  [token, props.initial_token, props.previous_token, props.config, props.metadata, props.t0, props.t9, props.n_edits])
+                .run('update sessions set next_token=? where token=?', [token, props.previous_token], () => { if (callback) callback()});
             });
           });
         });
@@ -1314,7 +1315,7 @@ CW.utils.summarize_db3 = function(token, callback) {
 };
 
 CW.utils.summarize_all_db3 = function(callback) {
-  let files = fs.readdirSync(CW.config.sqlite_archive);
+  let files = fs.readdirSync(CW.config.dir_archive);
   CW.summary_db.all('select token from sessions', function(err, rows) {
     let sessions = rows.map(x => x.token);
     console.log('*** Summarizing archived db3 files...');
@@ -1322,13 +1323,16 @@ CW.utils.summarize_all_db3 = function(callback) {
       if (!sessions.includes(file))
         CW.utils.summarize_db3(file, callback);
       else callback();
-    }, async.eachSeries(sessions, function(session, callback) {
-      if (!files.includes(session)) {
-        console.log('+ deleting '+session);
-        CW.summary_db.run('delete from sessions where token=?', [session], callback);
-      }
-      else callback();
-    }, callback));
+    }, function() {
+      async.eachSeries(sessions, function(session, callback) {
+        if (!files.includes(session)) {
+          console.log('+ deleting '+session);
+          CW.summary_db.run('delete from sessions where token=?', [session])
+            .run('update sessions set next_token=NULL where next_token=?', [session], () => { if (callback) callback() });
+        }
+        else callback();
+      }, callback);
+    });
   });
 };
           
@@ -1378,11 +1382,11 @@ CW.utils.to_txt = function(p, options) {
 CW.utils.open_summary_db3 = function(callback) {
   if (CW.summary_db) return callback();
   console.log('*** Opening summary db...');
-  CW.summary_db = new sqlite3.Database('summary.db3', function(err) {
+  CW.summary_db = new sqlite3.Database(CW.config.dir_summary + '/summary.db3', function(err) {
     if (err) {
       console.log('! Failed to open summary db', err);
     } else {
-      CW.summary_db.run('CREATE TABLE sessions(token TEXT PRIMARY KEY, initial_token TEXT, previous_token TEXT, config TEXT, metadata TEXT, t0 INTEGER, t9 INTEGER, n_edits INTEGER);', [], function(err) {
+      CW.summary_db.run('CREATE TABLE sessions(token TEXT PRIMARY KEY, initial_token TEXT, previous_token TEXT, next_token TEXT, config TEXT, metadata TEXT, t0 INTEGER, t9 INTEGER, n_edits INTEGER);', [], function(err) {
         callback();
       });
     }
