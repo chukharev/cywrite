@@ -13,9 +13,9 @@
         $.ajax({
           url: "/api/v1/launch",
           type: 'POST',
-          data: JSON.stringify(
-            { template: [ { ro: 1, text: 'Hello, world!' }, "" ] }
-          ),
+          data: JSON.stringify( {
+            config: { template: [ { ro: 1, text: 'Hello, world!' }, "" ] }
+          } ),
           contentType: 'application/json',
           dataType: 'json',
           success: function(data) {

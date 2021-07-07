@@ -128,6 +128,20 @@
       console.log.apply(console, out);
     },
 
+    register_hook: function(channel, cb) {
+      if (!this.hooks) this.hooks = {};
+      if (!this.hooks[channel]) this.hooks[channel] = [];
+      this.hooks[channel].push(cb);
+    },
+
+    trigger_hooks: function(channel, data) {
+      if (this.hooks && this.hooks[channel]) {
+        for (var i=0; i<this.hooks[channel].length; i++) {
+          this.hooks[channel][i].apply(this, [data]);
+        }
+      }
+    },
+
     connect_to_server: function() {
       var that = this;
       var sockjs_url = '/node/sock';
@@ -174,6 +188,8 @@
             if (p) p.add_span(msg);
           } else if (msg.cmd == 'add_spangroup') {
             this.add_spangroup(msg);
+          } else if (msg.cmd == 'set_hint') {
+            this.set_hint(msg);
           } else if (msg.cmd == 'destroy_span') {
             this.destroy_span(msg.id);
           } else if (msg.cmd == 'goodbye') {
@@ -262,9 +278,9 @@
       }
 
       this.container.append('<form method="GET" target="_blank" class="cw-form-download" action="/node/download"><input type="hidden" name="token" class="token" value=""></form>');
-      //this.container.append('<form method="POST" target="_blank" class="cw-form-bug" action="https://cywrite.engl.iastate.edu/bug.p"><input type="hidden" name="token" class="token" value=""><input type="hidden" name="doc_id" class="doc_id" value=""><input type="hidden" name="z" class="z" value=""></form>');
+
       _make(this, 'lpane'); _make(this, 'viewport'); _make(this, 'rpane'); _make(this, 'canvas', '', 'canvas'); _make(this, 'scrollbar'); _make(this, 'statusbar');
-      //this.rpane.append('<div id="cw-clock">--:--</div>'); //todo uncomment for EAGER
+      
       this.scrollbar_inner = $('<div></div>');
       this.scrollbar.append(this.scrollbar_inner);
 
@@ -326,34 +342,11 @@
         form.find('.token').val(t.token);
         form.submit();
       });
-      btn('.cw-btn-bug', function(){
-        var form = t.container.find('.cw-form-bug');
-        form.find('.token').val(t.token);
-        form.find('.doc_id').val(t.doc_id);
-        form.find('.z').val(t.z());
-        form.submit();
-      });
+
       btn('.cw-btn-goodbye', function(){
         t.sockjs.send('goodbye');
       });
-      /*btn('.cw-btn-ntu', function(){
-        var which = $(this).data('ntu');
-        if (which === 'large') {
-          t.font_size=49;
-          t.interline=35;
-          while (t.paragraphs[0].text.length==1) t.join_paragraphs(0);
-        } else {
-          t.font_size=22;
-          t.interline=16;
-        }
-        t.scrollbar_width = 20;
-        t.fb_width = 0;
-        t.resize();
-        t.send_event('ntu-btn-clicked', { which: which });
-        //var scrollbar = t.container.find('.cw-scrollbar');
-        //scrollbar.css('background-color', 'transparent');
-        $('.cw-btn-ntu').hide();
-      });*/
+
       btn('.cw-btn-start', function(){
         t.send_event('start');
         var scrollbar = t.container.find('.cw-scrollbar');
@@ -512,8 +505,7 @@
       return this;
     },
 
-    send_event: function(kind, data) {
-      if (this.suppress_send_event) return this;
+    prepare_event_data: function(kind, data) {
       var msg = data;
       if (CW.is_array(data)) {
         msg = new Object();
@@ -521,9 +513,14 @@
       }
       var msg1 = CW.extend({ k: kind }, msg);
       if (this.transaction) msg1.transaction = this.transaction;
+      return msg1;
+    },
+
+    send_event: function(kind, data) {
+      if (this.suppress_send_event) return this;
+      var msg1 = this.prepare_event_data(kind, data);
 
       this.socket.send('act', msg1);
-      
       if (kind === 'edit' || kind === 'split_paragaphs' || kind === 'join_paragraphs') {
       //if (kind === 'edit' && data.repl.length > 0) {
         this.forced_fluency_handler(true);
@@ -549,11 +546,10 @@
         r.props = new Object;
         for (var i=0; i<props.length; i++) r.props[props[i]] = this[props[i]];
       }
-  //    if (!p.no_csns && this.csn) {
-  //      r.props.csn = this.csn;
-  //    }
       r.paragraphs = new Array();
-      for (var i=0; i<this.paragraphs.length; i++) r.paragraphs[i] = this.paragraphs[i].snapshot(p);
+      if (this.paragraphs) {
+        for (var i=0; i<this.paragraphs.length; i++) r.paragraphs[i] = this.paragraphs[i].snapshot(p);
+      }
       return r;
     },
 
@@ -582,9 +578,14 @@
       var npd = this.nrd_to_npd(nrd);
       var offset = this.paragraphs[npd].cursor_to_offset();
 
-      //this.socket.send('key', {x: 1});
-
       if (this.is_readonly() || this.paragraphs[npd].ro) this.suppress_keypress = true;
+      if (this.track && this.track.is_calibrating) {
+        this.suppress_keypress = true;
+        event.preventDefault()
+        event.stopPropagation();
+        return;
+      }
+
       if (!this.pressed_keys[event.keyCode]) {
         var time = +new Date(); //event.timeStamp;
         var msg = { k: 'down', iki: 0, code: event.keyCode, z_act: this.z() };
@@ -660,7 +661,7 @@
       else {
         return;
       }
-      this.suppress_keypress = true;
+      //this.suppress_keypress = true; evgeny removed 2021-02-22 for #58
       event.preventDefault()
       event.stopPropagation();
     },
@@ -791,7 +792,6 @@
         var s = this.paragraphs[npd].spans[o];
         var new_op0 = s.op0 - offset;
         var new_op1 = s.op1 - offset;
-        //console.log(s, new_op0, new_op1, offset);
         if (new_op0 < 0 && new_op1 >= 0) s.destroy();
         else if (new_op0 >= 0) {
           s.op0 = new_op0;
@@ -1038,11 +1038,24 @@
       return this;
     },
 
+    draw_hint: function() {
+      if (this.hint && this.hint.need_draw) {
+        delete this.hint.need_draw;
+        this.rpane.find('#cw-hint-box').remove();
+        if (this.hint.box) {
+          var box = $('<div id="cw-hint-box"></div>').addClass(this.hint.box.kind).html(this.hint.box.message).appendTo(this.rpane);
+          this.hint.box.height = box.outerHeight(true);
+        }
+        this.send_event('set_hint', {hint: this.hint});
+      }
+    },
+
     draw: function() {
       this.viewport.find('.cw-row').remove();
       $.each(this.paragraphs, function() { this.draw() });
       this.draw_cursor();
       this.draw_statusbar();
+      this.draw_hint();
       this.draw_rpane();
       return this;
     },
@@ -1299,7 +1312,7 @@
       var label = '';
       if (this.config.label)
         label = '<span class="cw-label">['+this.config.label+']</span>';
-      this.statusbar.find(".cw-statusbar-text").html(label + ' <span class="cw-stats">'+counts+'</span> <span class="cw-tech">|| ' + this.status + ' z='+this.z()+' awaiting='+this.socket.awaiting_ack+' doc_id='+this.doc_id+' token='+this.token+'</span>');
+      this.statusbar.find(".cw-statusbar-text").html(label + ' <span class="cw-stats">'+counts+'</span> <span class="cw-tech">|| ' + this.status + ' z='+this.z()+' awaiting='+this.socket.awaiting_ack+' token='+this.token+'</span>');
       return this;
     },
 
@@ -1327,6 +1340,19 @@
         delete this.frozen_cursor;
       }
       return this;
+    },
+
+    frozen_to_global: function(frozen) {
+      var global_offset = 0;
+      for (var i=0; i<frozen.npd; i++) global_offset += this.paragraphs[i].text.length;
+      global_offset += frozen.offset;
+      return global_offset;
+    },
+
+    cursor_to_global: function() {
+      var frozen = this.cursor_to_frozen();
+      var global = this.frozen_to_global(frozen);
+      return global;
     },
 
     scroll: function() {
@@ -1433,13 +1459,40 @@
         y0 = this.viewport_height - total_height;
       }
       var fb_displayed = {};
-      if (y0 < 0) y0 = 0;
+      var miny = 0;
+
+      // hint box is present
+      if (this.hint && this.hint.box) {
+
+        // no contextual feedback boxes are present
+        if (!arr.length) {
+          if (y0+this.hint.box.height > this.viewport_height) {
+            y0 = this.viewport_height - this.hint.box.height;
+          }
+          fb_displayed.hint_box = {y0:y0, y1:y0 + this.hint.box.height};
+        } else {
+          // place hint box at the top
+          fb_displayed.hint_box = {y0:0, y1:this.hint.box.height};
+          miny = this.hint.box.height;
+          if (y0 < miny) y0 = miny;
+          else {
+            fb_displayed.hint_box.y0 += y0-miny;
+            fb_displayed.hint_box.y1 += y0-miny;
+          }
+        }
+
+        this.rpane.find("#cw-hint-box").css({ top: (fb_displayed.hint_box.y0+this.margin)+'px' });
+      }
+
+      if (y0 < miny) y0 = miny;
+
       for (var i=0; i<arr.length; i++) {
         var old_y0 = y0;
         arr[i].css({top: (y0+this.margin)+'px', left: '0px'});//.fadeIn('slow');
         y0 += arr[i].outerHeight(true);
         fb_displayed[arr[i].data('id')] = { y0: old_y0, y1: y0 };
       }
+
       if (!this.fb_displayed) this.fb_displayed = {};
       if (JSON.stringify(this.fb_displayed) != JSON.stringify(fb_displayed)) {
         this.fb_displayed = fb_displayed;
@@ -1490,6 +1543,12 @@
         context.lineWidth = 2;
         context.stroke();
       }
+    },
+
+    set_hint: function(d) {
+      this.hint = d.hint || {};
+      this.hint.need_draw = true;
+      this.draw_async();
     },
 
     add_spangroup: function(d) {
@@ -2051,8 +2110,22 @@
     send: function(channel, msg) {
       var c = this.channel(channel);
       if (!c.upstream) return;
-      c.outbox.push(CW.extend({ z: this.channel(channel).z++, t: +new Date() }, msg));
+      var final_message = CW.extend({ z: this.channel(channel).z++, t: +new Date() }, msg);
+      c.outbox.push(final_message);
+      this.display.trigger_hooks(channel, final_message);
       this.dispatch();
+    },
+    
+    send_noack: function(noack_channel, msg) {
+      var to_send = { noack_channel: noack_channel, msg: msg };
+      if (this.display.conn) {
+        this.display.log('>>>', 'noack:'+noack_channel);
+        this.display.conn.write(JSON.stringify(to_send));
+      } else if (this.display.sockjs) {
+        this.display.log('>>>', 'noack:'+noack_channel);
+        this.display.sockjs.send(JSON.stringify(to_send));
+      }
+      this.display.trigger_hooks(noack_channel, msg);
     },
 
     dispatch: function(force) {
@@ -2138,6 +2211,14 @@
         return;
       }
       var inbox = typeof data === 'string' ? JSON.parse(data) : data;
+
+      if (inbox.noack_channel) {
+        this.display.log('<<<', 'noack:'+inbox.noack_channel);
+        this.display.process_message(inbox.noack_channel, inbox.msg);
+        this.display.trigger_hooks(inbox.noack_channel, inbox.msg);
+        return;
+      }
+
       var ack = false;
 
       this.display.log('<<<', inbox); // data
@@ -2163,6 +2244,7 @@
             var msg = inbox[channel][i];
             if (msg.z == this.channel(channel).z + 1) {
               this.display.process_message(channel, msg);
+              this.display.trigger_hooks(channel, msg);
               this.channel(channel).z++;
             } else if (msg.z > this.channel(channel).z + 1) {
               this.display.shutdown();
@@ -2244,6 +2326,9 @@
       aeyf: { color: 'green', title: 'Evaluation', mode: 'differential' },
       drem: { color: '#ff0000', title: 'Revision', mode: 'differential' },
       aeyp: { color: 'blue', title: 'Task Definition', mode: 'differential' },
+
+      eye_fixations: { title: 'Eye fixations', icon: 'fa fa-eye' },
+      eye_movements: { title: 'Eye movements', icon: 'fa fa-eye' }
     },
 
     research_mode: 'process',
@@ -2289,8 +2374,10 @@
         var last = {};
         that.lines = { }; that.line_colors = [];
         for (var o in that.research_metrics) {
-          that.lines[o] = [];
-          that.line_colors.push(that.research_metrics[o].color);
+          if (that.research_metrics[o].color) {
+            that.lines[o] = [];
+            that.line_colors.push(that.research_metrics[o].color);
+          }
         }
         var overshadow=false;
         var last_values = {};
@@ -2335,11 +2422,13 @@
         for (var o in that.research_metrics) {
           var dspl = that.research_metrics[o].hidden ? ' style="display: none;"' : '';
           apnd += '<li><a href="#" class="cw-ps-a-metric" data-metric="'+o+'">'+
-          '<span class="glyphicon glyphicon-minus" style="color: '+that.research_metrics[o].color+'"></span> '+
-          that.research_metrics[o].title+
+          (that.research_metrics[o].color ? '<span class="glyphicon glyphicon-minus" style="color: '+that.research_metrics[o].color+'"></span>' : '') +
+          (that.research_metrics[o].icon ? '<span class="'+that.research_metrics[o].icon+'"></span>' : '') +
+          ' '+that.research_metrics[o].title+
           ' <span class="glyphicon glyphicon-ok"'+dspl+'></span>' +
           '</a></li>';
         }
+
         apnd += '</ul></div>';
         that.ps_toolbar.append(apnd);
         that.ps_toolbar.append('<div class="btn-group" role="group" style="float:left; margin-left:10px;">'+
@@ -2512,16 +2601,16 @@
             bootbox.hideAll();
           }).each(function() {
             if ($(this).find('s').length) return;
-            var iki = 0; //$(this).data('iki')||0;
+            var iki = $(this).data('iki')||0;
             var col = parseInt(iki/5000*255);
             function toHex(d) {
               return ("0"+(Number(d).toString(16))).slice(-2).toUpperCase()
             }
             var c=toHex(255-col);
-            //$(this).css({backgroundColor: '#ff'+c+c});
-            if ($(this).data('then-revision') === 'Y') $(this).css({backgroundColor: 'red'});
-            if ($(this).data('then-revision') === 'N') $(this).css({backgroundColor: 'yellow'});
-            if ($(this).data('then-revision') === 'F') $(this).css({backgroundColor: 'blue'});
+            $(this).css({backgroundColor: '#ff'+c+c});
+            if ($(this).data('then-revision') === 'Y') $(this).css({backgroundColor: '1px solid blue'});
+            //if ($(this).data('then-revision') === 'N') $(this).css({backgroundColor: 'yellow'});
+            if ($(this).data('then-revision') === 'F') $(this).css({border: '1px solid blue'});
           });
           $('.bootbox-body').css({lineHeight: '2em'});
           //$('s').hide();
@@ -2603,7 +2692,7 @@
       var that=this;
 
       for (var o in this.research_metrics) {
-        var show = this.research_metrics[o].mode === this.research_mode;
+        var show = !this.research_metrics[o].mode || this.research_metrics[o].mode === this.research_mode;
         var p = $('a.cw-ps-a-metric').filter(function() { return $(this).data("metric") === o }).parent();
         if (show) p.show(); else p.hide();
       }
@@ -2679,7 +2768,7 @@
       var that = this;
       sockjs.onopen = function() {
         that.sockjs = sockjs;
-        sockjs.send(JSON.stringify(that.original_token ? {cmd: 'playback', original_token: that.original_token} : {connect: 'viewer', token: that.token} ));
+        sockjs.send(JSON.stringify( {connect: 'viewer', token: that.token} ));
       }
       sockjs.onclose = function() {
         delete that.sockjs;
@@ -2714,29 +2803,10 @@
       _make(this, 'canvas', '', 'canvas');
       _make(this, 'toolbar', 'btn-toolbar', 'div', 'role="toolbar"');
 
-      this.role = /-R$/.test(this.token) ? 'playback' : /-X$/.test(this.token) ? 'research' : 'live';
+      this.role = /-X$/.test(this.token) ? 'research' : 'live';
       this.token = this.token.replace(/-X$/, '');
 
       this.container.append('<form method="GET" target="_blank" class="cw-form-download" action="/node/download"><input type="hidden" name="token" class="token" value=""></form>');
-      if (this.role === 'playback') {
-        this.toolbar.append(
-          '<div class="btn-group"><button type="button" class="btn btn-primary fa fa-fast-backward"></button><button type="button" class="btn cw-btn-dir btn-primary fa fa-pause"></button><button type="button" class="btn btn-primary fa fa-forward"></button><button type="button" class="btn btn-primary fa fa-fast-forward"></button></div>'+
-          '<div class="cw-progress" style="width: 300px;"><div class="cw-progress-fill" style="width: 0px"></div><div class="cw-position"></div></div>'
-        );
-        this.toolbar.find('.cw-btn-dir').click(function(){
-          if ($(this).is('.fa-pause')) t.sockjs.send(JSON.stringify({dir:'pause'}));
-          else t.sockjs.send(JSON.stringify({dir:'fwd'}));
-        });
-        this.toolbar.find('.fa-fast-backward').click(function(){
-          t.sockjs.send(JSON.stringify({start_over:true}));
-        });
-        this.toolbar.find('.fa-forward').click(function(){
-          t.sockjs.send(JSON.stringify({dir:'ffwd'}));
-        });
-        this.toolbar.find('.fa-fast-forward').click(function(){
-          t.sockjs.send(JSON.stringify({dir:'seek'}));
-        });
-      }
       if (this.role !== 'research')
         this.toolbar.append('<div class="btn-group"><button type="button" class="btn btn-default fa fa-download"></button></div>');
       if (this.role === 'live') {
@@ -2881,15 +2951,28 @@
         document.title = d.config.label;
       }
 
-      this.viewport.find('.cw-fixation').remove();
-      if (d.eye && 'x' in d.eye && 'y' in d.eye) {
-        //d.eye.y = Math.abs(d.eye.y);
-        //d.eye.x = Math.abs(d.eye.x);
-        var y = parseInt(d.eye.y/(this.data.size.char_height+this.data.size.interline)*(this.char_height + this.interline));
-        var x = parseInt(d.eye.x/(this.data.size.char_width)*(this.char_width));
+      var that=this;
+      var scale_xy = function(obj) {
+        var y = parseInt(obj.y/(that.data.size.char_height+that.data.size.interline)*(that.char_height + that.interline));
+        var x = parseInt(obj.x/(that.data.size.char_width)*(that.char_width));
+        return { x: x, y: y };
+      }
 
+      this.viewport.find('.cw-fixation').remove();
+
+      if (d.eye && 'x' in d.eye && 'y' in d.eye && !(this.research_metrics && this.research_metrics.eye_fixations.hidden)) {
+        var xy = scale_xy(d.eye);
         this.viewport.append('<div class="cw-fixation"></div>');
-        this.viewport.find('.cw-fixation').css({top: y-20, left: x-20});
+        this.viewport.find('.cw-fixation').css({top: xy.y-20, left: xy.x-20});
+      }
+      
+      this.viewport.find('.cw-saccade').remove();
+
+      if (d.eye_s && 'x' in d.eye_s && 'y' in d.eye_s && !(this.research_metrics && this.research_metrics.eye_movements.hidden)) {
+        var xy = scale_xy(d.eye_s);
+
+        this.viewport.append('<div class="cw-saccade"></div>');
+        this.viewport.find('.cw-saccade').css({top: xy.y-15, left: xy.x-15});
       }
 
       if (d.focus && d.focus.is_focused === false || d.eye && d.eye.is_calibrating) d.overshadow=true; else d.overshadow=false;
@@ -2968,9 +3051,35 @@
         }
       }
 
+      const scale_font_in_box = (box, it) => {
+        if (!it.y0) it.y0 = 0;
+        if (!it.height) it.height = it.y1-it.y0;
+        box.removeClass('to-remove').css('top', (it.y0*this.scale + this.margin)+'px').css('left', '0px');
+        var target_height = it.height*this.scale-5; // 5 is the spacing
+        var font_size = parseInt(box.css('font-size'), 10);
+        while (box.outerHeight() > target_height && font_size>5) {
+          font_size--;
+          box.css('font-size', font_size+'px');
+        }
+        while (box.outerHeight() < target_height && font_size<20) {
+          font_size++;
+          box.css('font-size', font_size+'px');
+        }
+      }
+
+      if (d.hint) {
+        this.rpane.find('#cw-hint-box').remove();
+        if (d.hint.box) {
+          if (d.fb && d.fb.hint_box) d.hint.box.y0 = d.fb.hint_box.y0;
+          var box = $('<div id="cw-hint-box"></div>').addClass(d.hint.box.kind).html(d.hint.box.message).appendTo(this.rpane);
+          scale_font_in_box(box, d.hint.box);
+        }
+      }
+
       if (d.fb) {
         this.rpane.find('.cw-fb-box').addClass('to-remove');
         for (var id in d.fb) {
+          if (id === 'hint_box') continue;
           var html_id = '';
           var it = d.fb[id];
           if (!it) continue;
@@ -2997,17 +3106,7 @@
             }
           }
           if (html_id) {
-            box.removeClass('to-remove').css('top', (it.y0*this.scale + this.margin)+'px').css('left', '0px');
-            var target_height = (it.y1-it.y0)*this.scale-5; // 5 is the spacing
-            var font_size = parseInt(box.css('font-size'), 10);
-            while (box.outerHeight() > target_height && font_size>5) {
-              font_size--;
-              box.css('font-size', font_size+'px');
-            }
-            while (box.outerHeight() < target_height && font_size<20) {
-              font_size++;
-              box.css('font-size', font_size+'px');
-            }
+            scale_font_in_box(box, it);
           }
         }
         this.rpane.find('.cw-fb-box.to-remove').remove();

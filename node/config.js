@@ -4,7 +4,8 @@ module.exports = {
   node_id: '7100',
   features: {
     hunspell: false, // fixme
-    analyze: false // fixme
+    analyze: false, // fixme
+    prowrite: false // fixme
   },
   delays: {
     heartbeat: 25000,    // server will send heartbeat 'ping' to client every 25 sec

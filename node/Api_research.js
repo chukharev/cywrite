@@ -57,6 +57,7 @@ module.exports = function(CW) {
       log_level_console: 'error',
       eye_y_shift: 0, //yshifts[token] || 
       death_sequence: 0,
+      throttle_eye: 50,
       //fix_undo_data: true,
 
       on_message_processed: function(channel, msg) {
@@ -154,7 +155,7 @@ module.exports = function(CW) {
             flags.deleting=false;
           }
         }
-        if (channel === 'eye' && msg.k === 'fix') {
+        if (channel === 'eye' && (msg.k === 'fix')) { //  || msg.k === 's' for prowrite?
           var eye_row = parseInt(msg.y / (this.char_height + this.interline));
           var eye_col = parseInt(msg.x / this.char_width);
           if (eye_row >= 0 && eye_row < this.rows && eye_col >= 0 && eye_col <= this.cols) {

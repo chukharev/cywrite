@@ -52,6 +52,15 @@
 
   CW.Track.prototype = {
     attach: function(display) {
+      try {
+        var settings = fs.readFileSync('cytrack_settings.json');
+        if (settings) {
+          settings = JSON.parse(settings);
+          CW.extend(this, settings);
+        }
+      } catch(e) {
+      }
+
       this.display = display;
       this.status = 'off';
       this.display.toolbar.prepend('<div class="btn-group"><button type="button" class="btn btn-default fa fa-eye"></button><button type="button" class="btn btn-danger cw-btn-start">Begin Session</button></div>');
@@ -82,12 +91,12 @@
     },
 
     gp_send: function() {
-      if (this.socket) for (var i=0; i<arguments.length; i++) this.socket.write(arguments[i]+"\r\n");
+      if (this.gp_socket) for (var i=0; i<arguments.length; i++) this.gp_socket.write(arguments[i]+"\r\n");
       return this;
     },
 
     shutdown: function() {
-      if (this.socket) this.socket.end();
+      if (this.gp_socket) this.gp_socket.end();
       if (this.udp_server) {
         this.udp_server.close();
         this.udp_server.unref();
@@ -97,12 +106,12 @@
 
     gp_connect: function() {
       var that=this;
-      if (this.socket) return;
-      this.socket = net.createConnection(4242, 'localhost');
+      if (this.gp_socket) return;
+      this.gp_socket = net.createConnection(4242, 'localhost');
       that.gp_progress();
-      this.socket.on('connect', function() { that.gp_connected() })
+      this.gp_socket.on('connect', function() { that.gp_connected() })
       .on('error', function() {
-        delete that.socket;
+        delete that.gp_socket;
         console.log('************** Gazepoint is starting now...');
         var exec_path = '\\gazepoint\\gazepoint\\bin\\gazepoint.exe';
         var try_path = function(path, next) { fs.exists(path, function(yes) { if (yes) { child_process.execFile(path); CW.async(that, 'gp_connect', 10000); } else if (next) next(); return; });};
@@ -124,24 +133,25 @@
       //w.focus();
       this.status = 'connected';
       this.button.removeClass('btn-info btn-default').addClass('btn-success');
-      this.socket.on('close', function() { that.gp_failed(); }).on('data', function(d) { that.gp_data(d) });
+      this.gp_socket.on('close', function() { that.gp_failed(); }).on('data', function(d) { that.gp_data(d) });
+      that.display.socket.send('eye', { k: 'tracker', data: { system: 'gazepoint' } });
       this.gp_send(
         '<SET ID="IMAGE_TX" ADDRESS="'+UDP_IP+'" PORT="'+UDP_PORT+'" />',
         '<SET ID="ENABLE_SEND_IMAGE" STATE="1" />',
-      '<SET ID="ENABLE_SEND_TIME" STATE="1" />', '<SET ID="ENABLE_SEND_POG_FIX" STATE="1" />', '<SET ID="ENABLE_SEND_DATA" STATE="1" />', '<GET ID="CALIBRATE_RESULT_SUMMARY" />', '<GET ID="SCREEN_SIZE" />');
+      '<SET ID="ENABLE_SEND_TIME" STATE="1" />', '<SET ID="ENABLE_SEND_POG_FIX" STATE="1" />', '<SET ID="ENABLE_SEND_POG_BEST" STATE="1" />', '<SET ID="ENABLE_SEND_DATA" STATE="1" />', '<GET ID="CALIBRATE_RESULT_SUMMARY" />', '<GET ID="SCREEN_SIZE" />');
     },
 
     gp_failed: function() {
       this.status = 'off';
       this.button.removeClass('btn-success btn-info').addClass('btn-default');
-      delete this.socket;
+      delete this.gp_socket;
     },
 
-    gp_calc_fixation: function(fix) {
+    gp_calc_fixation: function(fix, prefix) {
       if (!this.screen_size || !this.screen_delta) return;
-      var x = (fix.fpogx * this.screen_size.width) + this.screen_size.x;
+      var x = (fix[prefix+'pogx'] * this.screen_size.width) + this.screen_size.x;
       x += this.screen_delta.x - this.win.x;
-      var y = (fix.fpogy * this.screen_size.height) + this.screen_size.y;
+      var y = (fix[prefix+'pogy'] * this.screen_size.height) + this.screen_size.y;
       y += this.screen_delta.y - this.win.y;
       return (this.display.mouse_xy(this.display.viewport, {clientX: x, clientY: y}));
     },
@@ -154,13 +164,17 @@
     gp_process_data: function() {
       var that=this;
 
+      fs.appendFileSync('gp_log.txt', this.gp_buffer);
+
       this.gp_buffer = read_tag(this.gp_buffer, function(tag_name, values) {
         if (values.time) {
           var d = +new Date();
           d/=1000;
           var diff = d-values.time;
         }
-        
+
+        // if (!that.throttle) that.throttle = 1;
+       
         if (tag_name == 'CAL' && values.id == 'CALIB_RESULT') {
           that.is_calibrating = false;
           that.has_calibrated = true;
@@ -182,23 +196,38 @@
         } else if (tag_name == 'ACK' && values.id == 'SCREEN_SIZE') {
           that.screen_size = values;
         } else if (tag_name == 'REC' && that.calibration && that.screen_size && that.screen_delta) {
-          if (!that.fixation || that.fixation.fpogid != values.fpogid) {
-            var fix;
-            if (that.fixation) {
-              fix = that.gp_calc_fixation(that.fixation);
-              CW.extend(fix, { k: 'end', start: parseInt(that.fixation.fpogs * 1000), dur: parseInt(that.fixation.fpogd * 1000) });
+          if ('bpogx' in values) { //  && (that.throttle++) % 2
+            //<REC BPOGX="0.47175" BPOGY="0.43360" BPOGV="1" />
+            if (values.bpogv) {
+              fix = that.gp_calc_fixation(values, 'b');
+              CW.extend(fix, { k: 's', start: parseInt(values.time * 1000) });
               that.display.socket.send('eye', fix);
-              delete that.fixation;
-            }
-            if (values.fpogv) {
-              that.fixation = values;
-              fix = that.gp_calc_fixation(values);
-              CW.extend(fix, { k: 'fix', start: parseInt(that.fixation.fpogs * 1000) });
+            } else {
+              fix = { k: 's', x: -10000, y: -10000, start: parseInt(values.time * 1000) };
               that.display.socket.send('eye', fix);
             }
           }
-          if (values.fpogv && values.fpogd && that.fixation) {
-            that.fixation.fpogd = values.fpogd;
+          
+          if ('fpogid' in values) {
+            if ((!that.fixation && values.fpogv) || (that.fixation && !values.fpogv)) {
+              var fix;
+              if (that.fixation) {
+                fix = that.gp_calc_fixation(that.fixation, 'f');
+                CW.extend(fix, { k: 'end', start: parseInt(values.fpogs * 1000), dur: parseInt(values.fpogd * 1000) });
+                that.display.socket.send('eye', fix);
+                delete that.fixation;
+                console.log("END");
+              } else {
+                that.fixation = values;
+                fix = that.gp_calc_fixation(values, 'f');
+                CW.extend(fix, { k: 'fix', start: parseInt(values.fpogs * 1000) });
+                that.display.socket.send('eye', fix);
+                console.log("FIX");
+              }
+            }
+            /*if (values.fpogv && values.fpogd && that.fixation) {
+              that.fixation.fpogd = values.fpogd;
+            }*/
           }
         }
       });
@@ -212,14 +241,11 @@
     },
     
     gp_image_data: function(d) {
-      this.display.socket.send('img', { b: d.toString('base64', 8), k: 'GP3' });
+      this.display.socket.send_noack('img', { b: d.toString('base64', 8), k: 'gazepoint' });
+      //alert(d.toString('base64', 8).length);
     },
 
-    mouse_handler: function(e) {
-      this.screen_delta = { x: this.win.x + e.clientX - e.screenX, y: this.win.y + e.clientY - e.screenY };
-    },
-
-    btn_clicked: function() {
+    gp_btn_clicked: function() {
       var that = this;
       if (!this.udp_server) {
         var dgram = require('dgram');
@@ -262,9 +288,126 @@
         _shuffle(a);
         this.gp_send.apply(this, a);
         this.gp_send('<SET ID="CALIBRATE_SHOW" STATE="1" />', '<SET ID="CALIBRATE_START" STATE="1" />');
-
       }
-    }
+    },
+
+    el_btn_clicked: function() {
+      if (this.status == 'off') this.el_connect();
+      else if (this.status == 'connected') {
+        if (!that.is_calibrating) {
+          that.is_calibrating=true;
+          that.el_send('calibrate');
+          that.display.socket.send('eye', { k: 'cal_start' });
+        }
+      }
+    },
+
+    el_progress: function() {
+      this.status='wait';
+      this.button.removeClass('btn-default btn-success').addClass('btn-info');
+    },
+
+    el_send: function(what) {
+      if (this.el_socket) this.el_socket.send(what);
+      return this;
+    },
+
+    el_calc_fixation: function(arr) {
+      if (!this.screen_delta) return;
+      var x = parseInt(arr[3]);
+      x += this.screen_delta.x - this.win.x;
+      var y = parseInt(arr[4]);
+      y += this.screen_delta.y - this.win.y;
+      return (this.display.mouse_xy(this.display.viewport, {clientX: x, clientY: y}));
+    },
+
+    el_data: function(data) {
+      var that=this;
+
+      var arr = data.split(','); // 0-kind,1-t0,2-t9,3-x,4-y
+
+      if (arr[0] === 'timeOffset') {
+        that.display.socket.send('eye', {k:'time_offset', start: arr[1], data: { timestamp: arr[2], offset: arr[3] }});
+      } else if (arr[0] === 'startFixation') {
+        var fix;
+        fix = that.el_calc_fixation(arr);
+        if (fix) {
+          CW.extend(fix, {k:'fix', start: arr[1]});
+          that.display.socket.send('eye', fix);
+        }
+      } else if (arr[0] === 'endFixation') {
+        var fix;
+        fix = that.el_calc_fixation(arr);
+        if (fix) {
+          CW.extend(fix, {k:'end', start: arr[1], dur: arr[2]-arr[1]});
+          that.display.socket.send('eye', fix);
+        }
+      } else if (arr[0] === 'currentLocation') {
+        var fix;
+        fix = that.el_calc_fixation(arr);
+        if (fix) {
+          CW.extend(fix, {k:'s', start: arr[1]});
+          that.display.socket.send('eye', fix);
+        }
+      } else if (arr[0] === 'calibrationComplete') {
+        that.is_calibrating = false;
+        that.display.socket.send('eye', { k: 'cal', data: { message: arr[1] } });
+        //bootbox.alert('<div style="text-align:center;">Calibration completed<div style="font-size: 50px;">'+arr[1]+'</div></div>');
+      }
+    },
+
+    el_connected: function() {
+      var that=this;
+      //var w = gui.Window.get();
+      //w.show();
+      //w.focus();
+      // that.el_send('token,'+that.display.token.slice(-8));
+      var tkns = that.display.token.split('-');
+      var tkn = tkns[1];
+      that.el_send('token,'+tkn);
+      that.el_send('start');
+      this.status = 'connected';
+      this.button.removeClass('btn-info btn-default').addClass('btn-success');
+      this.el_socket.addEventListener('message', function(message) { that.el_data(message.data); });
+    },
+
+    el_connect: function() {
+      var that=this;
+      if (this.el_socket) return;
+      this.el_socket = new WebSocket("ws://localhost:3000");
+
+      that.el_progress();
+      this.el_socket.addEventListener('open', function() {
+        that.el_connected();
+        that.display.socket.send('eye', { k: 'tracker', data: { system: 'eyelink' } });
+      });
+      this.el_socket.addEventListener('close', function() {
+        that.display.socket.send('eye', { k: 'tracker', data: { system: 'eyelink', event: 'disconnected' } });
+        delete that.el_socket;
+        window.alert("Connection to EyeLink lost");
+        that.status = 'off';
+      });
+      this.el_socket.addEventListener('error', function() {
+        delete that.el_socket;
+        window.alert("Could not connect to EyeLink");
+        that.status = 'off';
+      });
+    },
+
+    mouse_handler: function(e) {
+      var dx = this.win.x + e.clientX - e.screenX;
+      var dy = this.win.y + e.clientY - e.screenY;
+      if (!this.screen_delta || dx !== this.screen_delta.x || dy !== this.screen_delta.y) {
+        this.screen_delta = { x: dx, y: dy };
+        this.display.socket.send('eye', { k: 'screen_delta', data: this.screen_delta });
+      }
+    },
+
+    btn_clicked: function() {
+      if (this.tracker_system === 'gazepoint') this.gp_btn_clicked();
+      else if (this.tracker_system === 'eyelink') this.el_btn_clicked();
+      else window.alert("No eyetracker system is configured. See cytrack_settings.js.");
+    },
   };
 
 })(CW);

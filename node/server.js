@@ -11,7 +11,8 @@ const
   fs=require('fs'),
   Async = require('async'),
   api_v1 = require('./Api_v1.js')(CW),
-  api_research = require('./Api_research.js')(CW);
+  api_research = require('./Api_research.js')(CW),
+  expressBasicAuth = require('express-basic-auth');
 
 var app, server;
 
@@ -35,13 +36,14 @@ Async.series([
   function (callback) {
     app = express();
     app.use(cookieParser()).enable('trust proxy').use(bodyParser.json()).use(bodyParser.urlencoded({extended: true}));
+    if (CW.config.users) app.use(expressBasicAuth({ challenge: true, realm: 'CyWrite', users: CW.config.users }));
     server = require('http').createServer(app);
 
     var node_prefix = '/node/';
 
     sockjs.createServer().on('connection', function(conn) { CW.accept_connection(conn) }).installHandlers(server, {prefix: node_prefix+'sock'});
 
-    for (let file of ['CyWrite.js', 'CyWrite.css', 'editor.html', 'viewer.html', 'debug.html', 'shutdown.html']) {
+    for (let file of ['CyWrite.js', 'CyTrack.js', 'CyWrite.css', 'editor.html', 'viewer.html', 'debug.html', 'shutdown.html']) {
       app.get('/w/'+file, (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
       if (/\.html$/.test(file)) app.get('/w/'+file.slice(0, -5), (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
     }
@@ -70,15 +72,15 @@ Async.series([
       res.redirect(302, 'viewer?'+clone.token);
     });
 
-    app.use('/api/v1', api_v1);
+    app.use('/api/v1' + (CW.config.api_secret ? '/'+CW.config.api_secret : ''), api_v1);
     app.use('/api/research', api_research);
 
     app.get('/', (req, res) => res.redirect(302, '/w/debug')); 
 
-    var port = CW.config.port || 9999;
+    const port = CW.config.port || 9999;
     server.listen(port);
     console.log("*** Init OK");
-    console.log("*** Go to http://localhost:9999/ in your browser to get started");
+    console.log("*** Go to http://localhost:" + port + "/ in your browser to get started");
 
     callback();
   }

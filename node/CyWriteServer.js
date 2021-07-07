@@ -36,6 +36,14 @@ CW.module_exists = function (name) {
   CW.dict_cache = new Object;
 };*/
 
+/*CW.dict = {
+  spellSuggestions: (word, cb) => {
+    cb(null, false, ['hello', 'world']) 
+  }
+};*/
+
+CW.dict_cache = new Object;
+
 
 /*** CLONE *******************************************************************/
 
@@ -50,13 +58,13 @@ CW.Clone = function(p) {
   }, p);
 
   if (!this.config) this.config = {};
-  if (!this.config.modules) this.config.modules = { spellcheck: 1, analyze: 1 };
+  if (!this.config.modules) this.config.modules = { }; //spellcheck: 1, analyze: 1 };
   for (var o in this.config.modules) {
     if (!this.config.modules[o] || /^(off|0|disabled?|false)$/i.test(this.config.modules[o])) delete this.config.modules[o];
   }
   if (!this.metadata) this.metadata = {};
 
-  if (!this.token) this.token = this.generate_token(this.role === 'playback' ? 'R' : this.role === 'research' ? 'Z' : '');
+  if (!this.token) this.token = this.generate_token(this.role === 'research' ? 'Z' : '');
   if (!CW.clones[this.token] && this.role !== 'research') CW.clones[this.token] = this;
 
   this.init_winston();
@@ -67,14 +75,14 @@ CW.Clone = function(p) {
     this.undo_stack = new Array();
     this.redo_stack = new Array();
     this.chkpnt = 1;
-  } else if (this.role == 'playback') {
-    this.start_playback();
   }
   this.viewers = new Object();
   this.broadcast_data = new Object();
 
   if (CW.config.delays) this.delays = CW.extend({}, CW.config.delays);
   if (this.role !== 'research') CW.async(this, 'inactive', this.delays.inactive);
+
+  if (CW.ProWrite) CW.ProWrite.init(this);
 
   return this;
 }
@@ -102,6 +110,9 @@ CW.extend(CW.Clone.prototype, {
   start_playback: function() {
     this.playback_direction = this.seek_z ? 'seek' : 'fwd';
     this.log('debug', 'start_playback', this.playback_direction);
+
+    this.start_session();
+
     var that = this;
     this.cur_t = 0;
     this.cur_z = {};
@@ -125,13 +136,6 @@ CW.extend(CW.Clone.prototype, {
   },
 
   proceed_playback: function() {
-    if (this.seek_z) {
-      this.playback_direction = 'seek';
-      if (this.seek_z <= this.cur_z.act || this.seek_z >= this.broadcast_data.scope.z9) {
-        this.playback_direction = 'fwd';
-        delete this.seek_z;
-      }
-    }
     if (this.playback_direction == 'pause' || (this.role !== 'research' && CW.is_empty_object(this.viewers))) {
       return;
     }
@@ -150,9 +154,8 @@ CW.extend(CW.Clone.prototype, {
         return;
       }
 
-      if (!that.begin_t) that.begin_t = next.t;
       if (dir == 'fwd') {
-        that.db3.all('select * from eye where z > ? order by z asc limit 1;', [that.cur_z.eye], function(err, rows_eye) {
+        that.db3.all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
           var next_eye = rows_eye ? rows_eye[0] : null;
           if (that.playback_direction == 'fwd' && next && next_eye) {
             if (next_eye.t < next.t) that.apply_playback('eye', next_eye); else that.apply_playback('act', next);
@@ -170,27 +173,17 @@ CW.extend(CW.Clone.prototype, {
     this.log('debug', 'apply_playback', channel, msg);
     delete this.next_playback_msg;
     
-    var dt = Math.abs(this.cur_t - msg.t);
-    
-    if (dt > 1000) dt = 1000;
-    if (dir == 'seek' && dt>10) dt = 10;
-    if (dir == 'ffwd' && dt>200) dt = 200;
-
-    var dir = this.playback_direction;
-
-    if (!this.begin_t) this.begin_t = next.t;
+    if (!this.begin_t) this.begin_t = msg.t;
+    this.cur_t = msg.t;
 
     if (msg.json) {
       CW.extend(msg, JSON.parse(msg.json));
       delete msg.json;
     }
-    if (dt > 1000) dt = 1000;
-    if (dir == 'seek' && dt>10) dt = 10;
-    if (dir == 'ffwd' && dt>200) dt = 200;
 
     this.next_playback_msg = { channel: channel, msg: msg };
 
-    CW.async(this, 'process_message', this.role==='research' ? 0 : dt);
+    CW.async(this, 'process_message', 0);
   },
 
   log: function() {
@@ -214,6 +207,11 @@ CW.extend(CW.Clone.prototype, {
       delete this.conn.CW_clone;
       this.conn.write('goodbye'); this.conn.end(); delete this.conn;
     }
+    
+    if (!this.session_started) {
+      this.start_session();
+    }
+
     if (!conn.CW_clone) {
       conn.on('data', function(e) { if (this.CW_clone) this.CW_clone.socket.on_data(e); else console.log('*** ZOMBIE! ***') });
       conn.on('close', function() { if (this.CW_clone) {
@@ -256,6 +254,20 @@ CW.extend(CW.Clone.prototype, {
       CW.async(that);
       if (that.socket) CW.async(that.socket);
     });
+  },
+
+  on_tick: function() {
+    if (this.deleted) return;
+    this.trigger_hooks('tick');
+    CW.async(this, 'on_tick', 1000);
+  },
+
+  start_session: function() {
+    let live = this.role === 'live';
+    if (live) CW.async(this, 'on_tick', 1000);
+    if (this.on_start) this.on_start.call(this); // todo remove
+    this.session_started = Date.now();
+    this.trigger_hooks('start');
   },
 
   on_message: function(data, info) {
@@ -363,8 +375,11 @@ CW.extend(CW.Clone.prototype, {
       var d0 = msg.data ? msg.data : null;
       if (live) this.db3_do('INSERT INTO eye (z, t, k, start, dur, x, y, json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [msg.z, msg.t, msg.k, msg.start, msg.dur, msg.x, msg.y, d0?JSON.stringify(d0):null]);
       if (msg.k === 'fix') {
-        if (this.eye_y_shift) msg.y -= this.eye_y_shift * (this.char_height + this.interline); /* FIX for eye_y_shift */
-        this.broadcast_data.eye = CW.extend({}, msg);
+        this.broadcast_data.eye = { x: msg.x, y: msg.y };
+        CW.async(this, 'broadcast', 0);
+      }
+      if (msg.k === 's') {
+        this.broadcast_data.eye_s = { x: msg.x, y: msg.y };
         CW.async(this, 'broadcast', 0);
       }
       if (msg.k === 'end') {
@@ -503,13 +518,12 @@ CW.extend(CW.Clone.prototype, {
 
   inactive: function() {
     this.log('info', 'inactive');
-    if (this.role == 'live' && !this.conn || this.role == 'playback' && CW.is_empty_object(this.viewers)) this.destroy();
+    if (this.role == 'live' && !this.conn) this.destroy();
   },
 
 
   // returns true if the text has changed
   apply_event: function(d) {
-    //if (!mode) mode = 'fwd';
     this.log('debug', 'applying event', d.z, d.k);
     if (d.csn) this.csn = d.csn;
     var prev_csn = this.csn; // before the event
@@ -521,6 +535,7 @@ CW.extend(CW.Clone.prototype, {
 
     if (/^(start|eager-btn-clicked)$/.test(d.k)) {
       this.broadcast_data.scope.t0 = d.t;
+      this.start_session();
       //console.log('new t0=', this.broadcast_data.scope.t0);
     } else if (d.k == 'focus') {
       this.is_focused = d0.is_focused;
@@ -580,9 +595,9 @@ CW.extend(CW.Clone.prototype, {
         this.add_spangroup(d);
       }
     } else if (d.k == 'destroy_span') {
-      //if (live) {
-        if (this.spans[d.id]) this.spans[d.id].destroy();
-      //}
+      if (this.spans[d.id]) this.spans[d.id].destroy();
+    } else if (d.k == 'set_hint') {
+      this.set_hint(d);
     } else if (d.k == 'align') {
       undo = { align: this.paragraphs[d.npd].align };
       this.paragraphs[d.npd].align = d.align;
@@ -661,6 +676,10 @@ CW.extend(CW.Clone.prototype, {
           }
         }
       }
+    }
+
+    if (undo && !d.undo) {
+      d.undo = JSON.stringify(undo);
     }
 
     if (this.role === 'research' && d.k === 'edit') {}
@@ -849,15 +868,13 @@ CW.extend(CW.Clone.prototype, {
 
   add_viewer: function(v) {
     var that=this;
-    var first_viewer = CW.is_empty_object(this.viewers);
-    this.log('debug', 'add_viewer', first_viewer);
+    this.log('debug', 'add_viewer');
     this.viewers[v.id]=v;
     v.CW_clone = this;
     v.CW_data = { ok: true };
     v.on('data', function(d){ that.viewer_data(v, d) });
     this.log('info', 'viewer '+v.id+' added');
     this.send_to_viewer(v);
-    if (first_viewer && this.role == 'playback') this.proceed_playback(); // && this.cur_z
     v.on('close', function() {
       if (this.CW_clone) {
         this.CW_clone.remove_viewer(this);
@@ -871,9 +888,6 @@ CW.extend(CW.Clone.prototype, {
       delete this.viewers[v.id];
       if (v.CW_clone === this) delete v.CW_clone;
       this.log('info', 'viewer '+v.id+' removed');
-      if (this.role == 'playback' && CW.is_empty_object(this.viewers)) {
-        CW.async(this, 'inactive', this.delays.inactive);
-      }
     }
   },
 
@@ -943,7 +957,8 @@ CW.extend(CW.Clone.prototype, {
       cursor: { cur_row: this.cur_row, cur_col: this.cur_col_shown() },
       focus: focus,
       position: { z: this.z(), t: this.cur_t, dir: this.playback_direction },
-      fb: fb
+      fb: fb,
+      hint: this.hint
     }, data);
 
     if (this.config) this.broadcast_data.config = this.config;
@@ -952,8 +967,35 @@ CW.extend(CW.Clone.prototype, {
       this.send_to_viewer(this.viewers[o]);
     }
     if (this.on_broadcast) this.on_broadcast.call(this);
-  }
+    this.trigger_hooks('broadcast');
+  },
 
+  schedule_hint: function(id, hint) {
+    if (!this.scheduled_hints) this.scheduled_hints = {};
+    if (!this.scheduled_hints[id] && !hint) return;
+    let first_priority;
+    if (!hint) {
+      delete this.scheduled_hints[id];
+    } else {
+      this.scheduled_hints[id] = hint;
+    }
+    let best_id;
+    for (let id in this.scheduled_hints) {
+      if (first_priority === undefined || this.scheduled_hints[id].priority < first_priority) {
+        first_priority = this.scheduled_hints[id].priority;
+        best_id = id;
+      }
+    }
+    if (best_id && best_id !== this.active_hint_id) {
+      this.send_cmd('set_hint', { hint: this.scheduled_hints[best_id] });
+      this.active_hint_id = best_id;
+    } else if (id === best_id) {
+      this.send_cmd('set_hint', { hint: this.scheduled_hints[best_id] || {} });
+    } else if (!best_id && this.active_hint_id) {
+      this.send_cmd('set_hint', {});
+      this.active_hint_id = undefined;
+    }
+  }
 });
 
 
@@ -1007,7 +1049,7 @@ CW.extend(CW.Paragraph.prototype, {
 
   touch: function() {
     old_cywrite_paragraph.prototype.touch.call(this);
-    if (this.display.role != 'playback') {
+    if (this.display.role != 'research') {
       CW.async(this, 'analyze', this.display.delays.analyze_paragraph);
       CW.async(this, 'spellcheck', this.display.delays.spellcheck);
     }
@@ -1033,6 +1075,10 @@ CW.extend(CW.Paragraph.prototype, {
       this.display.send_cmd('eval', {js: 'this.rpane.css("background-image", "url(http://upload.wikimedia.org/wikipedia/en/0/05/Hello_kitty_character_portrait.png)")'});
     }
 
+    if (/debug/i.test(this.text)) {
+      setTimeout(() => this.display.send_cmd('set_hint', { hint: { box: { kind: 'yellow large animate__animated animate__zoomIn', message: '<span class="fa fa-align-center"></span> You have 10 minutes &gt; left.' } } }), 5000);
+    }
+
     if (!CW.dict) return;
     if (!this.display.config.modules.spellcheck) return;
 
@@ -1043,6 +1089,7 @@ CW.extend(CW.Paragraph.prototype, {
 
     delete this.cur_word;
 
+    var match;
     while ((match = re.exec(this.text)) != null) {
       var word = match[0];
       var op0 = match.index;
@@ -1056,7 +1103,6 @@ CW.extend(CW.Paragraph.prototype, {
       if (!CW.dict_cache[word]) {
         (function (word) {
           CW.dict.spellSuggestions(word, function(err, correct, suggestions) {
-            //t.log(b);
             t.display.log('debug', 'spellcheck returned', err, correct, suggestions, 'for word', word);
             if (correct) CW.dict_cache[word] = 1; else CW.dict_cache[word] = suggestions;
             if (!correct) {
@@ -1258,9 +1304,28 @@ CW.utils.sanitize_db3 = function(token, callback) {
 }
 
 CW.utils.archive_db3 = function(token, callback) {
-  fs.rename(CW.config.dir_current+'/'+token, CW.config.dir_archive+'/'+token, function(err) {
-    console.log('*** archive_db3', token, err || 'ok');
-    CW.utils.summarize_db3(token, callback);
+  let fname = CW.config.dir_current+'/'+token;
+  const done = function() {
+    fs.rename(fname, CW.config.dir_archive+'/'+token, function(err) {
+      console.log('*** archive_db3', token, err || 'ok');
+      CW.utils.summarize_db3(token, callback);
+    });
+  }
+  console.log('will archive');
+  let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
+    db.all('select * from eye order by z desc limit 1;', function(err, rows) {
+      if (rows && rows.length) {
+        let t = rows[0].t;
+        console.log('inserting eye event with t='+t);
+        db.serialize(function() {
+          var stmt = db.prepare('insert into act(t, k) values(?,?)');
+          stmt.run.apply(stmt, [t, 'finalize_eye_data']);
+          stmt.finalize(() => db.close(done));
+        });
+      } else {
+        db.close(done);
+      }
+    });
   });
 }
 
@@ -1343,7 +1408,7 @@ CW.utils.to_html = function(p, options) {
     for (var i=0; i<p.length; i++) html += CW.utils.to_html(p[i], options);
     return html;
   }
-  var html = options.no_styles ? ('<p align="'+p.align+'">') : ('<p class="paragraph ' + p.align + '">');
+  var html = options.no_styles ? ('<p align="'+p.align+'">') : ('<p class="paragraph ' + p.align + (p.ro ? ' ro' : '') + '">');
   var span_open;
   for (var i=0; i<p.text.length; i++) {
     var ch = p.text.charAt(i);
@@ -1394,3 +1459,6 @@ CW.utils.open_summary_db3 = function(callback) {
 };
 
     
+if (CW.config.features.prowrite) {
+  (require('./ProWrite.js'))(CW);
+}
