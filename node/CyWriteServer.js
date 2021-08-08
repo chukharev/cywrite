@@ -118,18 +118,24 @@ CW.extend(CW.Clone.prototype, {
     this.cur_z = {};
     this.cleanup();
     this.db3 = new sqlite3.Database(CW.config.dir_archive+'/'+this.original_token);
-    this.db3.all('select * from document where kind=?;', ['initial'], function(err, rows) {
-      if (!rows || !rows.length) return that.shutdown();
-      var doc = JSON.parse(rows[0].json);
-      that.set_paragraphs(doc.paragraphs);
-      that.csn = doc.csn;
-      that.db3.all('select * from act order by z desc limit 1;', function(err, rows) {
-        if (!rows.length) return that.shutdown();
-        that.broadcast_data.scope = {z9:rows[0].z, t9:rows[0].t};
-        that.db3.all('select * from act order by z asc limit 1;', function(err, rows) {
-          that.broadcast_data.scope.z0 = rows[0].z;
-          that.broadcast_data.scope.t0 = rows[0].t;
-          CW.async(that, 'proceed_playback', 0);
+    this.db3.all('select * from props where name=?;', ['adjustments'], function(err, rows) {
+      if (rows && rows[0] && !that.adjustments) {
+        const json = JSON.parse(rows[0].value);
+        that.adjustments = json;
+      }
+      that.db3.all('select * from document where kind=?;', ['initial'], function(err, rows) {
+        if (!rows || !rows.length) return that.shutdown();
+        var doc = JSON.parse(rows[0].json);
+        that.set_paragraphs(doc.paragraphs);
+        that.csn = doc.csn;
+        that.db3.all('select * from act order by z desc limit 1;', function(err, rows) {
+          if (!rows.length) return that.shutdown();
+          that.broadcast_data.scope = {z9:rows[0].z, t9:rows[0].t};
+          that.db3.all('select * from act order by z asc limit 1;', function(err, rows) {
+            that.broadcast_data.scope.z0 = rows[0].z;
+            that.broadcast_data.scope.t0 = rows[0].t;
+            CW.async(that, 'proceed_playback', 0);
+          });
         });
       });
     });
@@ -353,6 +359,12 @@ CW.extend(CW.Clone.prototype, {
     }
   },
 
+  apply_eye_adjustments: function(eye_data) {
+    if (this.adjustments && this.adjustments.eye_row_shift) {
+      eye_data.y -= this.adjustments.eye_row_shift * (this.char_height + this.interline);
+    }
+  },
+
   process_message: function(channel, msg) {
     var live = this.role === 'live' ? 1 : 0;
     if (!live && !this.next_playback_msg) return;
@@ -376,10 +388,12 @@ CW.extend(CW.Clone.prototype, {
       if (live) this.db3_do('INSERT INTO eye (z, t, k, start, dur, x, y, json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [msg.z, msg.t, msg.k, msg.start, msg.dur, msg.x, msg.y, d0?JSON.stringify(d0):null]);
       if (msg.k === 'fix') {
         this.broadcast_data.eye = { x: msg.x, y: msg.y };
+        this.apply_eye_adjustments(this.broadcast_data.eye);
         CW.async(this, 'broadcast', 0);
       }
-      if (msg.k === 's') {
+      if (msg.k === 's') { // 's'ample (i.e. any eye movement)
         this.broadcast_data.eye_s = { x: msg.x, y: msg.y };
+        this.apply_eye_adjustments(this.broadcast_data.eye_s);
         CW.async(this, 'broadcast', 0);
       }
       if (msg.k === 'end') {
@@ -885,6 +899,10 @@ CW.extend(CW.Clone.prototype, {
 
   remove_viewer: function(v) {
     if (this.viewers[v.id]) {
+      try {
+        this.viewers[v.id].write('goodbye');
+      } catch (e) {
+      }
       delete this.viewers[v.id];
       if (v.CW_clone === this) delete v.CW_clone;
       this.log('info', 'viewer '+v.id+' removed');
