@@ -11,7 +11,7 @@ const
   fs=require('fs'),
   Async = require('async'),
   api_v1 = require('./Api_v1.js')(CW),
-  api_research = require('./Api_research.js')(CW),
+  api_research = require('./Api_research.js')(CW), // post-session viewer
   expressBasicAuth = require('express-basic-auth');
 
 var app, server;
@@ -63,13 +63,6 @@ Async.series([
       } else {
         res.send('error');
       }
-    });
-
-    app.get('/w/playback', function(req, res) {
-      var token = req.param("token");
-      var z = req.param("z");
-      var clone = new CW.Clone({ role: 'playback', original_token: token, seek_z: z });
-      res.redirect(302, 'viewer?'+clone.token);
     });
 
     app.use('/api/v1' + (CW.config.api_secret ? '/'+CW.config.api_secret : ''), api_v1);

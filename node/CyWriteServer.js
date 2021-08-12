@@ -160,7 +160,7 @@ CW.extend(CW.Clone.prototype, {
         return;
       }
 
-      if (dir == 'fwd') {
+      if (dir === 'fwd' && !that.ignore_eye) {
         that.db3.all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
           var next_eye = rows_eye ? rows_eye[0] : null;
           if (that.playback_direction == 'fwd' && next && next_eye) {
@@ -418,6 +418,7 @@ CW.extend(CW.Clone.prototype, {
       if (msg.t) this.cur_t = msg.t;
       this.cur_z[channel] = msg.z;
       if (this.on_message_processed) this.on_message_processed.call(this, channel, msg);
+      this.trigger_hooks(channel, msg);
       this.proceed_playback();
     }
   },
@@ -986,6 +987,9 @@ CW.extend(CW.Clone.prototype, {
     }
     if (this.on_broadcast) this.on_broadcast.call(this);
     this.trigger_hooks('broadcast');
+    if (!this.role !== 'live' && this.playback_direction === 'pause') {
+      this.trigger_hooks('playback_ended');
+    }
   },
 
   schedule_hint: function(id, hint) {
