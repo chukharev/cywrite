@@ -133,13 +133,14 @@
       if (!this.hooks[channel]) this.hooks[channel] = [];
       this.hooks[channel].push(cb);
     },
-
+    
     trigger_hooks: function(channel, data) {
       if (this.hooks && this.hooks[channel]) {
         for (var i=0; i<this.hooks[channel].length; i++) {
-          this.hooks[channel][i].apply(this, [data]);
+          this.hooks[channel][i].apply(this, [data, channel]);
         }
       }
+      if ((channel === 'key' || channel === 'act') && this.do_incremental_process_analysis) this.do_incremental_process_analysis.call(this, data, channel);
     },
 
     connect_to_server: function() {
@@ -1347,6 +1348,18 @@
       for (var i=0; i<frozen.npd; i++) global_offset += this.paragraphs[i].text.length;
       global_offset += frozen.offset;
       return global_offset;
+    },
+    
+    get_text_between: function(go1, go2) {
+      var gt = '';
+      for (var i=0; i<this.paragraphs.length; i++) gt += this.paragraphs[i].text.replace(/\$$/, "\n");
+      return gt.substring(go1, go2);
+    },
+
+    get_global_length: function() {
+      var gl=0;
+      for (var i=0; i<this.paragraphs.length; i++) gl += this.paragraphs[i].text.length;
+      return gl;
     },
 
     cursor_to_global: function() {
@@ -2572,9 +2585,9 @@
               last_deleted= this_deleted;
             }
 
-            el += '<span class="pause-char" style="cursor:pointer;" title="'+that.chars_seq[i].csn+'"';
+            el += '<span class="pause-char" style="cursor:pointer;"'; // that.chars_seq[i].csn
             if (c.info && c.info.ks) {
-              el += 'data-z='+c.info.z+" data-iki="+c.info.ks[0]+" data-then-revision=\""+c.info.then_revision+"\"";
+              el += 'data-z='+c.info.z+" data-iki="+c.info.ks[0]+" data-then-revision=\""+c.info.then_revision+"\" title=\""+c.info.ks[0]+"\" ";
             }
             el+='>';
             if (c.deleted) el+='<s>'+c.c+'</s>'; else el+=c.c;
@@ -2600,7 +2613,7 @@
             that.research_jump_to($(this).data('z'));
             bootbox.hideAll();
           }).each(function() {
-            if ($(this).find('s').length) return;
+            //if ($(this).find('s').length) return;
             var iki = $(this).data('iki')||0;
             var col = parseInt(iki/5000*255);
             function toHex(d) {
@@ -2608,11 +2621,11 @@
             }
             var c=toHex(255-col);
             $(this).css({backgroundColor: '#ff'+c+c});
-            if ($(this).data('then-revision') === 'Y') $(this).css({backgroundColor: '1px solid blue'});
+            if ($(this).data('then-revision') === 'Y') $(this).css({border: '1px solid green'});
             //if ($(this).data('then-revision') === 'N') $(this).css({backgroundColor: 'yellow'});
             if ($(this).data('then-revision') === 'F') $(this).css({border: '1px solid blue'});
           });
-          $('.bootbox-body').css({lineHeight: '2em'});
+          $('.bootbox-body').css({lineHeight: '2em', fontSize: '1.2em'});
           //$('s').hide();
         });
 

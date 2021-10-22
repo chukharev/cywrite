@@ -109,7 +109,7 @@ CW.extend(CW.Clone.prototype, {
 
   start_playback: function() {
     this.playback_direction = this.seek_z ? 'seek' : 'fwd';
-    this.log('debug', 'start_playback', this.playback_direction);
+    this.log('debug', 'start_playback', { direction: this.playback_direction });
 
     this.start_session();
 
@@ -145,13 +145,14 @@ CW.extend(CW.Clone.prototype, {
     if (this.playback_direction == 'pause' || (this.role !== 'research' && CW.is_empty_object(this.viewers))) {
       return;
     }
-    this.log('debug', 'proceed_playback', this.playback_direction);
+    this.log('debug', 'proceed_playback', { direction: this.playback_direction });
     var that = this;
     if (!this.cur_z.act) this.cur_z.act = 0;
     if (!this.cur_z.eye) this.cur_z.eye = 0;
+    if (!this.cur_z.key) this.cur_z.key = 0;
     var dir = this.playback_direction;
     this.db3.all('select * from act where z > ? order by z asc limit 3;', [this.cur_z.act], function(err, rows) { //  : 'select * from act where z <= ? order by z desc limit 3;
-      var next = rows[0];
+      let next = rows[0];
       if (!next) {
         that.playback_direction='pause';
         that.cur_z.act = that.broadcast_data.scope.z9;
@@ -160,23 +161,37 @@ CW.extend(CW.Clone.prototype, {
         return;
       }
 
-      if (dir === 'fwd' && !that.ignore_eye) {
-        that.db3.all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
-          var next_eye = rows_eye ? rows_eye[0] : null;
-          if (that.playback_direction == 'fwd' && next && next_eye) {
-            if (next_eye.t < next.t) that.apply_playback('eye', next_eye); else that.apply_playback('act', next);
-          } else {
-            that.apply_playback('act', next);
-          }
-        });
-      } else {
-        that.apply_playback('act', next);
+      let next_eye, next_key;
+
+      const get_next_eye = function(cb) {
+        if (dir === 'fwd' && !that.ignore_eye) {
+          that.db3.all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
+            next_eye = rows_eye ? rows_eye[0] : null;
+            cb();
+          });
+        } else cb();
       }
+      
+      const get_next_key = function(cb) {
+        if (dir === 'fwd' && !that.ignore_key) {
+          that.db3.all("select * from key where z > ? order by z asc limit 1;", [that.cur_z.key], function(err, rows_key) {
+            next_key = rows_key ? rows_key[0] : null;
+            cb();
+          });
+        } else cb();
+      }
+
+      get_next_eye(() => get_next_key(() => {
+        const min_t = Math.min(next.t, next_eye ? next_eye.t : next.t, next_key ? next_key.t : next.t);
+        if (next_eye && next_eye.t === min_t) that.apply_playback('eye', next_eye);
+        else if (next_key && next_key.t === min_t) that.apply_playback('key', next_key);
+        else that.apply_playback('act', next);
+      }));
     });
   },
 
   apply_playback: function(channel, msg) {
-    this.log('debug', 'apply_playback', channel, msg);
+    //this.log('debug', 'apply_playback', {channel: channel, msg: msg });
     delete this.next_playback_msg;
     
     if (!this.begin_t) this.begin_t = msg.t;
@@ -207,7 +222,7 @@ CW.extend(CW.Clone.prototype, {
   connect: function(conn) {
     let that = this;
     var ip = conn.headers['x-forwarded-for'] || conn.remoteAddress;
-    this.log('info', 'connect', conn.headers['user-agent'], ip, conn.protocol);
+    this.log('info', 'connect', { agent: conn.headers['user-agent'], ip: ip, proto: conn.protocol });
     if (this.conn) {
       this.log('info', 'closing previous connection');
       delete this.conn.CW_clone;
@@ -222,7 +237,7 @@ CW.extend(CW.Clone.prototype, {
       conn.on('data', function(e) { if (this.CW_clone) this.CW_clone.socket.on_data(e); else console.log('*** ZOMBIE! ***') });
       conn.on('close', function() { if (this.CW_clone) {
         this.CW_clone.log('info', 'connection closed');
-        CW.async(this.CW_clone, 'inactive', this.CW_clone.delays.inactive);
+        CW.async(this.CW_clone, 'inactive', { delay: this.CW_clone.delays.inactive });
         delete this.CW_clone.conn;
       } });
     }
@@ -341,8 +356,9 @@ CW.extend(CW.Clone.prototype, {
   },
 
   send_cmd: function(cmd, data) {
-    if (!this.socket) return;
     var msg = CW.extend({cmd: cmd}, data);
+    this.trigger_hooks('cmd', msg);
+    if (!this.socket) return;
     this.socket.send('cmd', msg);
   },
 
@@ -414,7 +430,7 @@ CW.extend(CW.Clone.prototype, {
       CW.async(this, 'broadcast', 0);
     }
     if (!live) {
-      this.log('debug', 'process_message', 'channel', msg);
+      this.log('debug', 'process_message', { channel: channel, msg: msg });
       if (msg.t) this.cur_t = msg.t;
       this.cur_z[channel] = msg.z;
       if (this.on_message_processed) this.on_message_processed.call(this, channel, msg);
@@ -539,7 +555,7 @@ CW.extend(CW.Clone.prototype, {
 
   // returns true if the text has changed
   apply_event: function(d) {
-    this.log('debug', 'applying event', d.z, d.k);
+    this.log('debug', 'applying event', { z: d.z, k: d.k});
     if (d.csn) this.csn = d.csn;
     var prev_csn = this.csn; // before the event
     var undo, undid = false; // stores undo data for events changing text; flag showing if undo has been performed
@@ -623,7 +639,7 @@ CW.extend(CW.Clone.prototype, {
       chkpnt=1;
     } else if (d.k == 'begin_undo') {
       if (live) {
-        this.log('debug', 'begin_undo; redo_stack=', this.redo_stack, ' undo_stack=', this.undo_stack);
+        this.log('debug', 'begin_undo', { redo_stack: this.redo_stack, undo_stack: this.undo_stack});
         if (this.chkpnt) {
           this.undo_stack.push([this.chkpnt, this.z()]);
           this.chkpnt=null;
@@ -985,11 +1001,83 @@ CW.extend(CW.Clone.prototype, {
     for (var o in this.viewers) {
       this.send_to_viewer(this.viewers[o]);
     }
+
+    this.build_chars_map();
+
     if (this.on_broadcast) this.on_broadcast.call(this);
     this.trigger_hooks('broadcast');
     if (!this.role !== 'live' && this.playback_direction === 'pause') {
       this.trigger_hooks('playback_ended');
     }
+  },
+
+  build_chars_map: function() {
+    const that=this;
+
+    if (!this.death_sequence) this.death_sequence = 0;
+    if (!this.chars_seq) this.chars_seq = [];
+    if (!this.chars_map) this.chars_map = {};
+
+    const seen_now = {};
+    for (let i=0; i<this.paragraphs.length; i++) {
+      const p = this.paragraphs[i];
+      for (let j=0; j<p.csns.length; j++) {
+        let csn = p.csns[j];
+        seen_now[csn]=true;
+      }
+    }
+
+    this.death_sequence++;
+    var seen_dead = false;
+    for (let csn in this.chars_map) {
+      if (!seen_now[csn] && !this.chars_map[csn].deleted) {
+        this.chars_map[csn].deleted = this.death_sequence;
+        seen_dead = 1;
+      }
+    }
+    if (!seen_dead) this.death_sequence--;
+
+    let prev_csn = 0;
+    for (let i=0; i<this.paragraphs.length; i++) {
+      const p = this.paragraphs[i];
+      for (var j=0; j<p.csns.length; j++) {
+        const csn = p.csns[j];
+        if (!this.chars_map[csn]) {
+          const chr = { c: p.text[j], csn: csn, p: p.z0 };
+          let ok;
+          for (let k=0; k<this.chars_seq.length; k++) {
+            if (this.chars_seq[k].csn === prev_csn) {
+              if (k < this.chars_seq.length-1) {
+                for (k++; k<this.chars_seq.length; k++) {
+                  if (!this.chars_seq[k].deleted) {
+                    k--;
+                    break;
+                  }
+                }
+              }
+              this.chars_seq.splice(k+1, 0, chr);
+              ok=1;
+              break;
+            }
+          }
+          if (!ok) this.chars_seq.unshift(chr);
+          this.chars_map[csn] = chr;
+        } else {
+          this.chars_map[csn].p = p.z0;
+        }
+        prev_csn = csn;
+      }
+    }
+  },
+
+  csns_to_string: function(csns) {
+    let string = "";
+    for (let j=0; j<this.chars_seq.length; j++) {
+      let add = "";
+      if (j && this.chars_seq[j].p !== this.chars_seq[j-1].p && string.length) add = "\n";
+      if (csns.includes(this.chars_seq[j].csn)) string += add + this.chars_seq[j].c;
+    }
+    return string;
   },
 
   schedule_hint: function(id, hint) {
@@ -1017,7 +1105,130 @@ CW.extend(CW.Clone.prototype, {
       this.send_cmd('set_hint', {});
       this.active_hint_id = undefined;
     }
+  },
+
+  do_incremental_process_analysis: function(msg, channel) {
+    if (!this.paragraphs || !this.paragraphs.length) return;
+    if (!this.interval) this.interval = {};
+
+    if (channel === 'key' && msg.k === 'down') {
+      if (!this.interval.key) this.interval.key = [];
+      this.interval.key.push({ t: msg.t, code: msg.code, iki: msg.iki });
+      return;
+    }
+
+    const cursor = this.cursor_to_frozen();
+
+    let is_paragraph_operation;
+    if (msg.k === 'split_paragraphs') {
+      msg.k = 'edit';
+      msg.repl = '\n';
+      is_paragraph_operation = true;
+    }
+    if (msg.k === 'join_paragraphs') {
+      msg.k = 'edit';
+      msg.repl = '';
+      msg.len = 1;
+      is_paragraph_operation = true;
+    }
+
+    const event_type =
+      msg.k === 'edit' && msg.repl.length === 1 && !msg.len ? 'production' :
+      msg.k === 'edit' && msg.len > 0 && !msg.repl.len      ? 'deletion' :
+      msg.k === 'edit' ? 'block-operation'
+      : '';
+
+    let iv0 = undefined;
+
+    // terminate previous interval
+    if (event_type) {
+      iv0 = this.interval || {};
+      iv0.next_event = event_type;
+      if (is_paragraph_operation) iv0.is_paragraph_operation = true;
+
+      if (event_type === 'production') {
+        iv0.text = msg.repl;
+        if (/^[\w'-]$/.test(msg.repl) && /before/.test(iv0.location)) {
+          iv0.word_started = true;
+        }
+      }
+      if (iv0.cursor_moved && !iv0.cursor_returned) {
+        iv0.jump = true;
+      }
+      iv0.duration = msg.t - iv0.t0;
+
+      // create a new interval
+      this.interval = {};
+    }
+
+    const iv = this.interval;
+    if (!iv.t0) iv.t0 = msg.t;
+    if (!iv.z0) iv.z0 = msg.z;
+    
+
+    if (msg.k === 'edit' && !is_paragraph_operation) {
+      cursor.npd = msg.npd;
+      cursor.offset = msg.offset + msg.repl.length;
+    }
+
+    let global_offset = this.frozen_to_global(cursor);
+
+    if (event_type === 'deletion' && iv0.jump) {
+      if (iv0.initial_inscription_offset === global_offset + msg.len) iv0.jump = false;
+    }
+
+    iv.context = this.paragraphs[cursor.npd].text.substring(0, cursor.offset);
+
+    iv.location =
+      /^\s*$/.test(iv.context)        ? 'before-paragraph' :
+      /[.!?]["\s]*$/.test(iv.context) ? 'before-sentence' :
+      /[^\w'-]$/.test(iv.context)     ? 'before-word' :
+      'within-word';
+
+    if (msg.k === 'edit') {
+      iv.initial_inscription_offset = global_offset;
+    }
+    iv.global_offset = global_offset;
+
+    if (iv.initial_inscription_offset !== global_offset && !iv.cursor_moved) {
+      iv.cursor_moved = true;
+      iv.cursor_returned = false;
+    }
+    if (iv.initial_inscription_offset === global_offset && iv.cursor_moved) {
+      iv.cursor_returned = true;
+    }
+
+    const coords = [iv.global_offset, iv.initial_inscription_offset].sort((a,b) => a-b)
+    iv.jump_text = this.get_text_between(coords[0], coords[1]);
+
+    if (msg.k === 'edit') {
+      if (!this.cur_segment) this.cur_segment = { id: 0 };
+      if (!iv0 || iv0.jump || is_paragraph_operation || iv0.next_event === 'deletion' && !this.cur_segment_deleted) {
+        // start a new segment
+        if (iv0 && this.cur_segment.id) iv0.prev_segment = JSON.parse(JSON.stringify(this.cur_segment));
+        this.cur_segment = { id: this.cur_segment.id+1, ins: msg.repl.length, del: msg.len, i: [], d: [] };
+      } else {
+        if (msg.len > 0) this.cur_segment.del += msg.len;
+        if (msg.repl.length) this.cur_segment.ins += msg.repl.length;
+      }
+
+      let u = msg.undo ? JSON.parse(msg.undo) : {};
+      if (u.csns) {
+        this.cur_segment.d = this.cur_segment.d.concat(u.csns);
+      }
+      if (msg.repl.length) {
+        this.cur_segment.i = this.cur_segment.i.concat(this.paragraphs[msg.npd].csns.slice(msg.offset, msg.offset+msg.repl.length));
+      }
+      this.cur_segment_deleted = msg.len;
+      this.cur_segment.d_text = this.csns_to_string(this.cur_segment.d);
+      this.cur_segment.i_text = this.csns_to_string(this.cur_segment.i);
+      if (!iv0.jump) delete iv0.jump_text;
+    }
+    if (iv0) {
+      this.trigger_hooks('interval_end', iv0);
+    }
   }
+
 });
 
 
@@ -1158,6 +1369,7 @@ CW.extend(CW.Paragraph.prototype, {
     delete this.analyzed;
     this.cleaned = true;
   }
+
 
 });
 
