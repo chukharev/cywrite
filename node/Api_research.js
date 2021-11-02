@@ -40,7 +40,7 @@ module.exports = function(CW) {
     var cur_data = {}, cur_rows = {}, cur_vars={};
     var summary = {}, annotations = { lookback: [] }, html = {}, calibration = {};
     
-    var chars_map = {}; var chars_seq = []; var chars_info = {};
+    var chars_info = {};
 
     graph_db_processing[token] = 0;
     var out_all = [], out_diff = {};
@@ -50,6 +50,7 @@ module.exports = function(CW) {
     var cur_deleted;
     var revisions = [];
     var mark_previous_csn = 0, mark_previous_offset = 0;
+    var jcount = 0; //used to match jarrows
 
     var r = new CW.Clone({
       role: 'research',
@@ -71,80 +72,10 @@ module.exports = function(CW) {
           //console.log(msg);
         }
         if (channel === 'act' && msg.k === 'edit') {
-          var global_offset = 0;
-          for (var i=0; i<msg.npd; i++) global_offset += this.paragraphs[i].text.length;
-          global_offset += msg.offset;
-
-          var left = msg.offset;
-          var right = msg.offset + msg.len - 1;
-          var z0 = this.paragraphs[msg.npd].z0;
-          var continued;
-          if (cur_revision.para_z0 && cur_revision.para_z0 === z0) {
-            if (msg.len > 0) {
-              if (left === cur_revision.offset || right === cur_revision.offset-1) continued = true;
-            }
-            if (msg.repl.length) {
-              if (cur_revision.offset+msg.repl.length === msg.offset || cur_revision.offset === msg.offset) continued = true;
-            }
-          }
-          if (!cur_deleted && msg.len > 0) continued = false;
-          var mark_continued = continued;
-
-          if (continued) {
-            cur_revision.offset = msg.offset;
-            cur_revision.z_end = msg.z;
-            if (msg.len > 0) cur_revision.del += msg.len;
-            if (msg.repl.length) cur_revision.ins += msg.repl.length;
-          } else {
-            revisions.push(cur_revision);
-            cur_revision = { ins: msg.repl.length, del: msg.len, para_z0: z0, z_start: msg.z, offset: msg.offset, z_end: msg.z, i: [], d: [] };
-          }
-
-          var u = JSON.parse(msg.undo);
-          if (u.csns) {
-            cur_revision.d = cur_revision.d.concat(u.csns);
-          }
-          if (msg.repl.length)
-            cur_revision.i = cur_revision.i.concat(this.paragraphs[msg.npd].csns.slice(msg.offset, msg.offset+msg.repl.length));
-
-          
-          cur_deleted = msg.len;
-
-          if (msg.repl.length == 1) {
-            var csn = this.paragraphs[msg.npd].csns[msg.offset];
-
-            if (mark_previous_csn) {
-              if (!chars_info[mark_previous_csn]) chars_info[mark_previous_csn] = {};
-              chars_info[mark_previous_csn].then_revision = mark_continued ? 'N' : mark_previous_offset >= global_offset-1 ? 'Y' : 'F';
-            }
-            mark_previous_csn = csn;
-            mark_previous_offset = global_offset;
-
+          if (msg.repl.length === 1) {
             count_typed_chars++;
             flags.typing=msg.t;
-            var info_adder = function(csn, z) {
-              that.db3.all('select * from key where z_act=? and iki order by z asc;', [msg.z], function(err, rows) {
-                if (rows.length) {
-                  var ks = [];
-                  for (var i=0; i<rows.length; i++) {
-                    //ks.push(rows[i].code);
-                    ks.push(rows[i].iki);
-                  }
-                  if (!chars_info[csn]) chars_info[csn] = {};
-                  chars_info[csn].z = z;
-                  chars_info[csn].ks = ks;
-                }
-              });
-            }
-            info_adder(csn, msg.z);
           } else {
-            if (mark_previous_csn) {
-              if (!chars_info[mark_previous_csn]) chars_info[mark_previous_csn] = {};
-              chars_info[mark_previous_csn].then_revision = mark_continued ? 'N' : mark_previous_offset >= global_offset-1 ? 'Y' : 'F';
-            }
-            mark_previous_csn = 0;
-            mark_previous_offset = global_offset;
-
             flags.typing=false;
           }
           if (msg.len > 0) {
@@ -178,55 +109,6 @@ module.exports = function(CW) {
         var t1 = that.broadcast_data.position.t - that.broadcast_data.scope.t0;
         graph_db_processing[token] = pct;
         //console.log(pct);
-
-        var seen_now = {};
-        for (var i=0; i<this.paragraphs.length; i++) {
-          var p = this.paragraphs[i];
-          for (var j=0; j<p.csns.length; j++) {
-            var csn = p.csns[j];
-            seen_now[csn]=1;
-          }
-        }
-        this.death_sequence++;
-        var seen_dead = false;
-        for (var csn in chars_map) {
-          if (!seen_now[csn] && !chars_map[csn].deleted) {
-            chars_map[csn].deleted = this.death_sequence;
-            seen_dead = true;
-          }
-        }
-        if (!seen_dead) this.death_sequence--;
-        var prev_csn = 0;
-        for (var i=0; i<this.paragraphs.length; i++) {
-          var p = this.paragraphs[i];
-          for (var j=0; j<p.csns.length; j++) {
-            var csn = p.csns[j];
-            if (!chars_map[csn]) {
-              var chr = { c: p.text[j], csn: csn, p: p.z0 };
-              var ok;
-              for (var k=0; k<chars_seq.length; k++) {
-                if (chars_seq[k].csn === prev_csn) {
-                  if (k < chars_seq.length-1) {
-                    for (k++; k<chars_seq.length; k++) {
-                      if (!chars_seq[k].deleted) {
-                        k--;
-                        break;
-                      }
-                    }
-                  }
-                  chars_seq.splice(k+1, 0, chr);
-                  ok=1;
-                  break;
-                }
-              }
-              if (!ok) chars_seq.unshift(chr);
-              chars_map[csn] = chr;
-            } else {
-              chars_map[csn].p = p.z0;
-            }
-            prev_csn = csn;
-          }
-        }
 
         for (var o in this.broadcast_data.rows) {
           if (!(o in cur_rows) || this.broadcast_data.rows[o] !== cur_rows[o]) {
@@ -362,16 +244,32 @@ module.exports = function(CW) {
             }
           }
 
-          for (var i=0; i<chars_seq.length; i++) {
-            if (chars_info[chars_seq[i].csn]) chars_seq[i].info = chars_info[chars_seq[i].csn];
+          for (var i=0; i<that.chars_seq.length; i++) {
+            if (chars_info[that.chars_seq[i].csn]) that.chars_seq[i].info = chars_info[that.chars_seq[i].csn];
+            if (that.jcsns[that.chars_seq[i].csn] && that.jcsns[that.chars_seq[i].csn].jid) that.chars_seq[i].jid = that.jcsns[that.chars_seq[i].csn].jid;
           }
-          var str = JSON.stringify({ frames: out_all, annotations: annotations, summary: summary, calibration: calibration, html: html, chars_seq: chars_seq, revisions: revisions });
+          var str = JSON.stringify({ frames: out_all, annotations: annotations, summary: summary, calibration: calibration, html: html, chars_seq: that.chars_seq });
           fs.writeFile(fn, str, function() {
             delete graph_db_processing[token];
           });
         }
       }
     });
+
+    let prev_csn, prev_jid;
+    r.register_hook('interval_end', function(iv) {
+      if (iv.csn) {
+        chars_info[iv.csn] = { z: iv.z_end, dur: iv.duration, jump: iv.cursor_moved && !iv.cursor_returned };
+        if (iv.jid && prev_jid && iv.jid !== prev_jid) {
+          jcount++;
+          chars_info[prev_csn].ju = jcount;
+          chars_info[iv.csn].jd = jcount;
+        }
+        prev_csn = iv.csn;
+        prev_jid = iv.jid;
+      }
+    });
+
     r.start_playback();
   }
 

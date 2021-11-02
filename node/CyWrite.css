@@ -3,6 +3,7 @@
 .cw-cursor { border-left: 2px solid black; z-index: 5;}
 .cw-block { background-color: #0000ff; z-index: 5; opacity: 0.2; }
 .cw-input { position: fixed; left: -1000px; }
+#xeditor { position: fixed; top: 25%; left: 25%; width: 50%; height: 50%; }
 #editor { position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; }
 #viewer { position: fixed; top: 0px; left: 0px; width: 100%; height: 100%; }
 #x-cw-clock { position: absolute; top: 30px; font-size:25px; left:100px; color: #999999; } /* for EAGER */
@@ -158,6 +159,39 @@ p.right { text-align: right; }
     display:table;
     width:100%;
 }
+.cw-viewer-product {
+    position: absolute;
+    z-index: 50;
+    height: 100px;
+    display:none;
+    width:100%;
+    background-color: white;
+    color: black;
+    padding: 5px;
+    overflow-y: auto;
+}
+.cw-product {
+  line-height: 2em;
+  font-size: 1.2em;
+}
+.deleted {
+  text-decoration: line-through;
+}
+.product-cursor {
+  background-color: black !important;
+  color: white !important;
+}
+.cw-product.cursor-blinked .product-cursor {
+  background-color: #aaaaaa !important;
+}
+.jarrow {
+  cursor: pointer;
+}
+.jarrow-matched {
+  background-color: blue;
+  color: white;
+}
+
 .cw-viewer-message div {
     height:100%;
     display:table-cell;

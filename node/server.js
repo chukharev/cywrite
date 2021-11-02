@@ -43,7 +43,7 @@ Async.series([
 
     sockjs.createServer().on('connection', function(conn) { CW.accept_connection(conn) }).installHandlers(server, {prefix: node_prefix+'sock'});
 
-    for (let file of ['CyWrite.js', 'CyTrack.js', 'CyWrite.css', 'editor.html', 'viewer.html', 'debug.html', 'shutdown.html']) {
+    for (let file of ['CyWrite.js', 'CyTrack.js', 'CyWriteViewer.js', 'CyWrite.css', 'editor.html', 'viewer.html', 'debug.html', 'shutdown.html']) {
       app.get('/w/'+file, (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
       if (/\.html$/.test(file)) app.get('/w/'+file.slice(0, -5), (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
     }

@@ -1107,9 +1107,49 @@ CW.extend(CW.Clone.prototype, {
     }
   },
 
+  j_stain: function(frozen, range, jid) {
+    for (let csn in this.jcsns) {
+      if (this.jcsns[csn].stain === jid) delete this.jcsns[csn].stain;
+    }
+    let go0 = this.frozen_to_global(frozen);
+    for (let go=go0-range; go<=go0+range; go++) {
+      let frozen1 = this.global_to_frozen(go);
+      if (frozen1) {
+        let p = this.paragraphs[frozen1.npd];
+        if (frozen1.offset < p.csns.length) {
+          let csn = p.csns[frozen1.offset];
+          if (!this.jcsns[csn]) this.jcsns[csn] = {};
+          this.jcsns[csn].stain = jid;
+        }
+      }
+    }
+  },
+  
+  find_jid: function(frozen, range) {
+    let go0 = this.frozen_to_global(frozen);
+    for (let delta=0; delta<=range; delta++) {
+      for (let sgn=-1; sgn<=2; sgn+=2) {
+        let delta1 = sgn*delta;
+        let frozen1 = this.global_to_frozen(go0 + delta1);
+        if (frozen1) {
+          let p = this.paragraphs[frozen1.npd];
+          if (frozen1.offset < p.csns.length) {
+            let csn = p.csns[frozen1.offset];
+            if (this.jcsns[csn] && this.jcsns[csn].stain) return this.jcsns[csn].stain;
+          }
+        }
+      }
+    }
+    return 0;
+  },
+
   do_incremental_process_analysis: function(msg, channel) {
     if (!this.paragraphs || !this.paragraphs.length) return;
     if (!this.interval) this.interval = {};
+    if (!this.jcsns) {
+      this.jcsns = {};
+      this.last_jid = 0;
+    }
 
     if (channel === 'key' && msg.k === 'down') {
       if (!this.interval.key) this.interval.key = [];
@@ -1117,9 +1157,40 @@ CW.extend(CW.Clone.prototype, {
       return;
     }
 
+    if (channel === 'eye') {
+      if (msg.k === 'fix') {
+        if (!this.interval.eye) this.interval.eye = [];
+        const eye = { t_start: msg.t };
+        this.interval.eye.push(eye);
+
+        var eye_row = parseInt(msg.y / (this.char_height + this.interline));
+        var eye_col = parseInt(msg.x / this.char_width);
+        if (eye_row >= 0 && eye_row < this.rows && eye_col >= 0 && eye_col <= this.cols) {
+          var cr = this.cur_row; var cc = this.cur_col;
+          this.cur_row=eye_row; this.cur_col=eye_col;
+          var frozen_eye = this.cursor_to_frozen();
+          this.cur_row=cr; this.cur_col=cc;
+
+          eye.fixation_offset = this.frozen_to_global(frozen_eye);
+          if (this.paragraphs[frozen_eye.npd].ro) {
+            eye.ro = true;
+          }
+          eye.inscription_offset = this.interval.global_offset;
+          const coords = [eye.inscription_offset, eye.fixation_offset].sort((a,b) => a-b)
+          eye.displacement_text = this.get_text_between(coords[0], coords[1]);
+        }
+        this.last_eye = eye;
+      }
+
+      if (msg.k === 'end' && this.last_eye) {
+        this.last_eye.duration = msg.dur;
+        this.last_eye = null;
+      }
+    }
+
     const cursor = this.cursor_to_frozen();
 
-    let is_paragraph_operation;
+    let is_paragraph_operation = false;
     if (msg.k === 'split_paragraphs') {
       msg.k = 'edit';
       msg.repl = '\n';
@@ -1143,46 +1214,49 @@ CW.extend(CW.Clone.prototype, {
     // terminate previous interval
     if (event_type) {
       iv0 = this.interval || {};
-      iv0.next_event = event_type;
-      if (is_paragraph_operation) iv0.is_paragraph_operation = true;
+      iv0.next_event_type = event_type;
+      iv0.next_event_is_paragraph_operation = is_paragraph_operation;
 
       if (event_type === 'production') {
         iv0.text = msg.repl;
-        if (/^[\w'-]$/.test(msg.repl) && /before/.test(iv0.location)) {
+        /*if (/^[\w'-]$/.test(msg.repl) && /post-/.test(iv0.location)) {
           iv0.word_started = true;
-        }
+        }*/
       }
-      if (iv0.cursor_moved && !iv0.cursor_returned) {
-        iv0.jump = true;
-      }
-      iv0.duration = msg.t - iv0.t0;
+      iv0.duration = msg.t - iv0.t_start;
 
       // create a new interval
       this.interval = {};
     }
 
     const iv = this.interval;
-    if (!iv.t0) iv.t0 = msg.t;
-    if (!iv.z0) iv.z0 = msg.z;
-    
+    if (!iv.t_start) iv.t_start = msg.t;
+    if (!iv.z_start) iv.z_start = msg.z;
 
     if (msg.k === 'edit' && !is_paragraph_operation) {
       cursor.npd = msg.npd;
       cursor.offset = msg.offset + msg.repl.length;
+      for (let offset1 = msg.offset; offset1 < msg.offset+msg.repl.length; offset1++) {
+        let csn = this.paragraphs[msg.npd].csns[offset1];
+        if (!this.jcsns[csn]) this.jcsns[csn] = {};
+        this.jcsns[csn].jid = iv0.jid;
+      }
     }
 
     let global_offset = this.frozen_to_global(cursor);
+    
+    iv.jid = this.find_jid(cursor, 5);
 
-    if (event_type === 'deletion' && iv0.jump) {
-      if (iv0.initial_inscription_offset === global_offset + msg.len) iv0.jump = false;
+    if (event_type === 'deletion' && iv0.cursor_moved && !iv0.cursor_returned) {
+      if (iv0.initial_inscription_offset === global_offset + msg.len) iv0.cursor_returned = true;
     }
 
-    iv.context = this.paragraphs[cursor.npd].text.substring(0, cursor.offset);
+    iv.pretext = this.paragraphs[cursor.npd].text.substring(0, cursor.offset);
 
     iv.location =
-      /^\s*$/.test(iv.context)        ? 'before-paragraph' :
-      /[.!?]["\s]*$/.test(iv.context) ? 'before-sentence' :
-      /[^\w'-]$/.test(iv.context)     ? 'before-word' :
+      /^\s*$/.test(iv.pretext)        ? 'post-paragraph' :
+      /[.!?]["\s]*$/.test(iv.pretext) ? 'post-sentence' :
+      /[^\w'-]$/.test(iv.pretext)     ? 'post-word' :
       'within-word';
 
     if (msg.k === 'edit') {
@@ -1202,7 +1276,10 @@ CW.extend(CW.Clone.prototype, {
     iv.jump_text = this.get_text_between(coords[0], coords[1]);
 
     if (msg.k === 'edit') {
-      if (!this.cur_segment) this.cur_segment = { id: 0 };
+      iv0.z_end = msg.z;
+      iv0.t_end = msg.t;
+
+      if (!this.cur_segment) this.cur_segment = { id: 0, d: [], i: [] };
       if (!iv0 || iv0.jump || is_paragraph_operation || iv0.next_event === 'deletion' && !this.cur_segment_deleted) {
         // start a new segment
         if (iv0 && this.cur_segment.id) iv0.prev_segment = JSON.parse(JSON.stringify(this.cur_segment));
@@ -1218,13 +1295,24 @@ CW.extend(CW.Clone.prototype, {
       }
       if (msg.repl.length) {
         this.cur_segment.i = this.cur_segment.i.concat(this.paragraphs[msg.npd].csns.slice(msg.offset, msg.offset+msg.repl.length));
+        iv0.csn = this.paragraphs[msg.npd].csns[msg.offset];
       }
       this.cur_segment_deleted = msg.len;
       this.cur_segment.d_text = this.csns_to_string(this.cur_segment.d);
       this.cur_segment.i_text = this.csns_to_string(this.cur_segment.i);
-      if (!iv0.jump) delete iv0.jump_text;
+      if (!iv0.cursor_moved || iv0.cursor_returned) delete iv0.jump_text;
     }
     if (iv0) {
+      if (!iv0.jid) {
+        this.last_jid++;
+        iv0.jid = this.last_jid;
+      }
+      this.j_stain(cursor, 5, iv0.jid);
+
+      iv0.cursor_moved = !!iv0.cursor_moved;
+      iv0.cursor_returned = !!iv0.cursor_returned;
+
+      //console.log('*************************************************', iv0);
       this.trigger_hooks('interval_end', iv0);
     }
   }
