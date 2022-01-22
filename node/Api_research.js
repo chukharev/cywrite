@@ -51,6 +51,7 @@ module.exports = function(CW) {
     var revisions = [];
     var mark_previous_csn = 0, mark_previous_offset = 0;
     var jcount = 0; //used to match jarrows
+    var intervals = []; // z_end of each interval
 
     var r = new CW.Clone({
       role: 'research',
@@ -246,9 +247,16 @@ module.exports = function(CW) {
 
           for (var i=0; i<that.chars_seq.length; i++) {
             if (chars_info[that.chars_seq[i].csn]) that.chars_seq[i].info = chars_info[that.chars_seq[i].csn];
-            if (that.jcsns[that.chars_seq[i].csn] && that.jcsns[that.chars_seq[i].csn].jid) that.chars_seq[i].jid = that.jcsns[that.chars_seq[i].csn].jid;
+            if (that.jcsns[that.chars_seq[i].csn]) {
+              let out = that.chars_seq[i];
+              let jcsn = that.jcsns[that.chars_seq[i].csn];
+              if (jcsn.interval_id_ins) out.ivi = jcsn.interval_id_ins;
+              if (jcsn.interval_id_del) out.ivd = jcsn.interval_id_del;
+
+              if (jcsn.edge_id_ins) out.ei = jcsn.edge_id_ins;
+            }
           }
-          var str = JSON.stringify({ frames: out_all, annotations: annotations, summary: summary, calibration: calibration, html: html, chars_seq: that.chars_seq });
+          var str = JSON.stringify({ frames: out_all, intervals: intervals, summary: summary, calibration: calibration, html: html, chars_seq: that.chars_seq });
           fs.writeFile(fn, str, function() {
             delete graph_db_processing[token];
           });
@@ -256,19 +264,58 @@ module.exports = function(CW) {
       }
     });
 
-    let prev_csn, prev_jid;
+/*    let prev_csn, prev_edge_id;
     r.register_hook('interval_end', function(iv) {
+      if (iv.cursor_moved && iv.cursor_returned) {
+        chars_info[prev_csn].j = 1;
+      }
       if (iv.csn) {
         chars_info[iv.csn] = { z: iv.z_end, dur: iv.duration, jump: iv.cursor_moved && !iv.cursor_returned };
-        if (iv.jid && prev_jid && iv.jid !== prev_jid) {
+        if (iv.edge_id && prev_edge_id && iv.edge_id !== prev_edge_id) {
           jcount++;
           chars_info[prev_csn].ju = jcount;
           chars_info[iv.csn].jd = jcount;
         }
         prev_csn = iv.csn;
-        prev_jid = iv.jid;
+        prev_edge_id = iv.edge_id;
       }
+    });*/
+
+    let iv0 = {}; // previous interval
+    let csn0; // csn last touched
+
+    r.register_hook('interval_end', function(iv) {
+      intervals.push(iv.z_end);
+      
+      if (iv.csn) {
+        chars_info[iv.csn] = { dur: iv.duration, jump: iv.cursor_moved && !iv.cursor_returned };
+      }
+      if (iv.edge_id && iv0.edge_id && iv.edge_id !== iv0.edge_id) {
+        jcount++;
+
+        if (iv.csns_ins.length) {
+          let first_csn = iv.csns_ins[0];
+          if (!chars_info[first_csn]) chars_info[first_csn] = {};
+          chars_info[first_csn].jdi = jcount;
+        } else if (iv.csns_del.length) {
+          let first_csn = iv.csns_del[0];
+          if (!chars_info[first_csn]) chars_info[first_csn] = {};
+          chars_info[first_csn].jdd = jcount;
+        }
+        if (iv0.csns_ins && iv0.csns_ins.length) {
+          let last_csn = iv0.csns_ins[iv0.csns_ins.length-1];
+          if (!chars_info[last_csn]) chars_info[last_csn] = {};
+          chars_info[last_csn].jui = jcount;
+        } else if (iv0.csns_del && iv0.csns_del.length) {
+          let last_csn = iv0.csns_del[iv0.csns_del.length-1];
+          if (!chars_info[last_csn]) chars_info[last_csn] = {};
+          chars_info[last_csn].jud = jcount;
+        }
+      }
+
+      iv0 = iv;
     });
+
 
     r.start_playback();
   }

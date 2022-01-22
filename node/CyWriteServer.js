@@ -1002,8 +1002,6 @@ CW.extend(CW.Clone.prototype, {
       this.send_to_viewer(this.viewers[o]);
     }
 
-    this.build_chars_map();
-
     if (this.on_broadcast) this.on_broadcast.call(this);
     this.trigger_hooks('broadcast');
     if (!this.role !== 'live' && this.playback_direction === 'pause') {
@@ -1033,6 +1031,8 @@ CW.extend(CW.Clone.prototype, {
       if (!seen_now[csn] && !this.chars_map[csn].deleted) {
         this.chars_map[csn].deleted = this.death_sequence;
         seen_dead = 1;
+      } else if (seen_now[csn] && this.chars_map[csn].deleted) {
+        this.chars_map[csn].deleted = 0;
       }
     }
     if (!seen_dead) this.death_sequence--;
@@ -1043,7 +1043,7 @@ CW.extend(CW.Clone.prototype, {
       for (var j=0; j<p.csns.length; j++) {
         const csn = p.csns[j];
         if (!this.chars_map[csn]) {
-          const chr = { c: p.text[j], csn: csn, p: p.z0 };
+          const chr = { c: p.text[j], csn: csn, p0: p.z0, p9: p.z0 };
           let ok;
           for (let k=0; k<this.chars_seq.length; k++) {
             if (this.chars_seq[k].csn === prev_csn) {
@@ -1063,7 +1063,7 @@ CW.extend(CW.Clone.prototype, {
           if (!ok) this.chars_seq.unshift(chr);
           this.chars_map[csn] = chr;
         } else {
-          this.chars_map[csn].p = p.z0;
+          this.chars_map[csn].p9 = p.z0;
         }
         prev_csn = csn;
       }
@@ -1107,9 +1107,9 @@ CW.extend(CW.Clone.prototype, {
     }
   },
 
-  j_stain: function(frozen, range, jid) {
+  mark_working_edge: function(frozen, range, edge_id) {
     for (let csn in this.jcsns) {
-      if (this.jcsns[csn].stain === jid) delete this.jcsns[csn].stain;
+      if (this.jcsns[csn].stain === edge_id) delete this.jcsns[csn].stain;
     }
     let go0 = this.frozen_to_global(frozen);
     for (let go=go0-range; go<=go0+range; go++) {
@@ -1119,36 +1119,88 @@ CW.extend(CW.Clone.prototype, {
         if (frozen1.offset < p.csns.length) {
           let csn = p.csns[frozen1.offset];
           if (!this.jcsns[csn]) this.jcsns[csn] = {};
-          this.jcsns[csn].stain = jid;
+          this.jcsns[csn].stain = edge_id;
+        } else {
+          range++; // fixme do lateral ranges instead?
         }
       }
     }
   },
   
-  find_jid: function(frozen, range) {
+  find_edge_id: function(frozen, range) {
+    const check_stain = (delta) => {
+      let frozen1 = this.global_to_frozen(go0 + delta);
+      if (!frozen1) return 0;
+      let p = this.paragraphs[frozen1.npd];
+      if (frozen1.offset >= p.csns.length) return -1;
+      let csn = p.csns[frozen1.offset];
+      if (this.jcsns[csn] && this.jcsns[csn].stain) return this.jcsns[csn].stain;
+      return 0;
+    }
+
     let go0 = this.frozen_to_global(frozen);
+    let skip_left=0, skip_right=0;
     for (let delta=0; delta<=range; delta++) {
-      for (let sgn=-1; sgn<=2; sgn+=2) {
-        let delta1 = sgn*delta;
-        let frozen1 = this.global_to_frozen(go0 + delta1);
-        if (frozen1) {
-          let p = this.paragraphs[frozen1.npd];
-          if (frozen1.offset < p.csns.length) {
-            let csn = p.csns[frozen1.offset];
-            if (this.jcsns[csn] && this.jcsns[csn].stain) return this.jcsns[csn].stain;
-          }
-        }
+      let stain;
+
+      do {
+        let delta_left = -delta-skip_left;
+        stain = check_stain(delta_left);
+        if (stain === -1) skip_left++;
+        if (stain > 0) return stain;
+      } while(stain === -1);
+      
+      do {
+        let delta_right = delta+skip_right;
+        stain = check_stain(delta_right);
+        if (stain === -1) skip_right++;
+        if (stain > 0) return stain;
+      } while(stain === -1);
+    }
+    return 0;
+  },
+  
+  find_edge_id_in_deletion: function(deletion, range) {
+    if (deletion && deletion.length) {
+      let last_n = deletion.slice(-1 * range);
+      last_n.reverse();
+      for (let csn of last_n) {
+        if (this.jcsns[csn] && this.jcsns[csn].stain) return this.jcsns[csn].stain;
       }
     }
     return 0;
   },
 
+  do_sustained_reading_analysis: function() {
+    this.broadcast_data.sr = 0;
+    const fixations = this.sustained_eye;
+    if (fixations.length < 3) return;
+    const last = fixations.slice(-3);
+    let y_sum = 0;
+    for (let x of last) {
+      if (!x.is_text_fixated) return;
+      y_sum += x.y;
+    }
+    let y_ave = y_sum / last.length;
+
+    if (!(last[2].x > last[1].x && last[1].x > last[0].x && last[1].x - last[0].x < this.char_width * 25 && last[2].x - last[1].x < this.char_width * 25)) return;
+    const y_tolerance = 100;
+    for (let x of last) {
+      if (Math.abs(x.y - y_ave) > y_tolerance) return;
+    }
+    fixations[fixations.length - 1].is_sustained_reading = true;
+    this.interval.has_sustained_reading = true;
+    this.broadcast_data.sr = 1;
+  },
+
   do_incremental_process_analysis: function(msg, channel) {
+    const range = 2;
+
     if (!this.paragraphs || !this.paragraphs.length) return;
     if (!this.interval) this.interval = {};
     if (!this.jcsns) {
       this.jcsns = {};
-      this.last_jid = 0;
+      this.last_edge_id = 0;
     }
 
     if (channel === 'key' && msg.k === 'down') {
@@ -1160,24 +1212,34 @@ CW.extend(CW.Clone.prototype, {
     if (channel === 'eye') {
       if (msg.k === 'fix') {
         if (!this.interval.eye) this.interval.eye = [];
+        if (!this.sustained_eye) this.sustained_eye = [];
         const eye = { t_start: msg.t };
         this.interval.eye.push(eye);
+        this.sustained_eye.push(eye);
 
         var eye_row = parseInt(msg.y / (this.char_height + this.interline));
         var eye_col = parseInt(msg.x / this.char_width);
+        eye.row = eye_row;
+        eye.col = eye_col;
+        eye.x = msg.x;
+        eye.y = msg.y;
         if (eye_row >= 0 && eye_row < this.rows && eye_col >= 0 && eye_col <= this.cols) {
+          eye.is_text_fixated = true;
           var cr = this.cur_row; var cc = this.cur_col;
           this.cur_row=eye_row; this.cur_col=eye_col;
           var frozen_eye = this.cursor_to_frozen();
           this.cur_row=cr; this.cur_col=cc;
 
           eye.fixation_offset = this.frozen_to_global(frozen_eye);
-          if (this.paragraphs[frozen_eye.npd].ro) {
-            eye.ro = true;
-          }
+          eye.is_ro_fixated = !!this.paragraphs[frozen_eye.npd].ro;
           eye.inscription_offset = this.interval.global_offset;
           const coords = [eye.inscription_offset, eye.fixation_offset].sort((a,b) => a-b)
           eye.displacement_text = this.get_text_between(coords[0], coords[1]);
+
+          this.do_sustained_reading_analysis();
+
+        } else {
+          eye.is_text_fixated = false;
         }
         this.last_eye = eye;
       }
@@ -1209,10 +1271,15 @@ CW.extend(CW.Clone.prototype, {
       msg.k === 'edit' ? 'block-operation'
       : '';
 
+
+    if (event_type || msg.k === 'cursor' || msg.k === 'resize') this.sustained_eye = [];
+
     let iv0 = undefined;
 
     // terminate previous interval
     if (event_type) {
+      this.build_chars_map();
+
       iv0 = this.interval || {};
       iv0.next_event_type = event_type;
       iv0.next_event_is_paragraph_operation = is_paragraph_operation;
@@ -1226,26 +1293,21 @@ CW.extend(CW.Clone.prototype, {
       iv0.duration = msg.t - iv0.t_start;
 
       // create a new interval
-      this.interval = {};
+      this.interval = { id: (iv0.id || 0) + 1 };
+    }
+
+    if (msg.k === 'edit' && !is_paragraph_operation) {
+      cursor.npd = msg.npd;
+      cursor.offset = msg.offset + msg.repl.length;
     }
 
     const iv = this.interval;
     if (!iv.t_start) iv.t_start = msg.t;
     if (!iv.z_start) iv.z_start = msg.z;
 
-    if (msg.k === 'edit' && !is_paragraph_operation) {
-      cursor.npd = msg.npd;
-      cursor.offset = msg.offset + msg.repl.length;
-      for (let offset1 = msg.offset; offset1 < msg.offset+msg.repl.length; offset1++) {
-        let csn = this.paragraphs[msg.npd].csns[offset1];
-        if (!this.jcsns[csn]) this.jcsns[csn] = {};
-        this.jcsns[csn].jid = iv0.jid;
-      }
-    }
-
     let global_offset = this.frozen_to_global(cursor);
     
-    iv.jid = this.find_jid(cursor, 5);
+    iv.edge_id = this.find_edge_id(cursor, range);
 
     if (event_type === 'deletion' && iv0.cursor_moved && !iv0.cursor_returned) {
       if (iv0.initial_inscription_offset === global_offset + msg.len) iv0.cursor_returned = true;
@@ -1279,11 +1341,11 @@ CW.extend(CW.Clone.prototype, {
       iv0.z_end = msg.z;
       iv0.t_end = msg.t;
 
-      if (!this.cur_segment) this.cur_segment = { id: 0, d: [], i: [] };
-      if (!iv0 || iv0.jump || is_paragraph_operation || iv0.next_event === 'deletion' && !this.cur_segment_deleted) {
+      if (!this.cur_segment) this.cur_segment = { id: 0, csns_del: [], csns_ins: [] };
+      if (!iv0 || iv0.cursor_moved && !iv0.cursor_returned || is_paragraph_operation || iv0.next_event_type === 'deletion' && this.cur_segment.ins) {
         // start a new segment
         if (iv0 && this.cur_segment.id) iv0.prev_segment = JSON.parse(JSON.stringify(this.cur_segment));
-        this.cur_segment = { id: this.cur_segment.id+1, ins: msg.repl.length, del: msg.len, i: [], d: [] };
+        this.cur_segment = { id: this.cur_segment.id+1, ins: msg.repl.length, del: msg.len, csns_ins: [], csns_del: [] };
       } else {
         if (msg.len > 0) this.cur_segment.del += msg.len;
         if (msg.repl.length) this.cur_segment.ins += msg.repl.length;
@@ -1291,28 +1353,51 @@ CW.extend(CW.Clone.prototype, {
 
       let u = msg.undo ? JSON.parse(msg.undo) : {};
       if (u.csns) {
-        this.cur_segment.d = this.cur_segment.d.concat(u.csns);
+        this.cur_segment.csns_del = this.cur_segment.csns_del.concat(u.csns);
+        iv0.csns_del = [].concat(u.csns);
+      } else {
+        iv0.csns_del = [];
       }
       if (msg.repl.length) {
-        this.cur_segment.i = this.cur_segment.i.concat(this.paragraphs[msg.npd].csns.slice(msg.offset, msg.offset+msg.repl.length));
+        iv0.csns_ins = this.paragraphs[msg.npd].csns.slice(msg.offset, msg.offset+msg.repl.length);
+        this.cur_segment.csns_ins = this.cur_segment.csns_ins.concat(iv0.csns_ins);
         iv0.csn = this.paragraphs[msg.npd].csns[msg.offset];
+      } else {
+        iv0.csns_ins = [];
       }
+
       this.cur_segment_deleted = msg.len;
-      this.cur_segment.d_text = this.csns_to_string(this.cur_segment.d);
-      this.cur_segment.i_text = this.csns_to_string(this.cur_segment.i);
+      this.cur_segment.text_del = this.csns_to_string(this.cur_segment.csns_del);
+      this.cur_segment.text_ins = this.csns_to_string(this.cur_segment.csns_ins);
+  
       if (!iv0.cursor_moved || iv0.cursor_returned) delete iv0.jump_text;
     }
     if (iv0) {
-      if (!iv0.jid) {
-        this.last_jid++;
-        iv0.jid = this.last_jid;
+      if (!iv0.edge_id) {
+        iv0.edge_id = this.find_edge_id_in_deletion(iv0.csns_del, range)
       }
-      this.j_stain(cursor, 5, iv0.jid);
+      if (!iv0.edge_id) {
+        this.last_edge_id++;
+        iv0.edge_id = this.last_edge_id;
+      }
+      if (msg.k === 'edit' && !is_paragraph_operation) {
+        for (let csn of iv0.csns_del) {
+          if (!this.jcsns[csn]) this.jcsns[csn] = {};
+          this.jcsns[csn].interval_id_del = iv0.id;
+          this.jcsns[csn].edge_id_del = iv0.edge_id;
+        }
+        for (let csn of iv0.csns_ins) {
+          if (!this.jcsns[csn]) this.jcsns[csn] = {};
+          this.jcsns[csn].interval_id_ins = iv0.id;
+          this.jcsns[csn].edge_id_ins = iv0.edge_id;
+        }
+      }
+      this.mark_working_edge(cursor, range, iv0.edge_id);
 
       iv0.cursor_moved = !!iv0.cursor_moved;
       iv0.cursor_returned = !!iv0.cursor_returned;
 
-      //console.log('*************************************************', iv0);
+//      console.log('*************************************************', this.cur_segment);
       this.trigger_hooks('interval_end', iv0);
     }
   }

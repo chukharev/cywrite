@@ -64,6 +64,14 @@
         }
       }
     },
+    
+    research_z_to_interval: function(z) {
+      for (var i=0; i<this.intervals.length; i++) {
+        if (this.intervals[i] >= z) {
+          return i;
+        }
+      }
+    },
 
     research_jump_to: function(where) {
       if (/^\d+$/.test(where)) {
@@ -89,9 +97,9 @@
       $.getJSON('/api/research/session/'+this.token+'/data', function(data) {
         var x = data.frames;
         that.summary = data.summary;
-        that.annotations = data.annotations;
         that.html = data.html;
         that.chars_seq = data.chars_seq;
+        that.intervals = data.intervals;
         var last = {};
         that.lines = { }; that.line_colors = [];
         for (var o in that.research_metrics) {
@@ -294,12 +302,12 @@
       var that = this;
 
       var html = '';
-      var last_p = 0, last_p_including_deleted = 0, last_csn = 0, last_deleted = 0, last_jid = 0;
+      var last_p = 0, last_p_including_deleted = 0, last_csn = 0;
       var prev_csn, this_csn, this_deleted, prev_jid, this_jid;
       var existing_paras = {};
       for (var i=0; i<this.chars_seq.length; i++) {
         var c = this.chars_seq[i];
-        if (!c.deleted) existing_paras[c.p] = 1;
+        if (!c.deleted) existing_paras[c.p9] = 1;
       }
       for (var i=0; i<this.chars_seq.length; i++) {
         var c = this.chars_seq[i];
@@ -310,57 +318,91 @@
           this_csn = c.csn;
           this_deleted = c.deleted;
         }
-        if (c.jid) {
+        if (c.ei) {
           prev_jid = this_jid;
-          this_jid = c.jid;
+          this_jid = c.ei;
         }
 
         var span_class = 'pause-char ';
         if (this_deleted) {
           span_class += 'deleted ';
         }
-        if (c.info && c.info.jd) el += '<span class="jarrow" id="jd-'+c.info.jd+'">&darr;</span>';
+        if (c.ivi) span_class += 'ivi-'+c.ivi+' ';
+        if (c.ivd) span_class += 'ivd-'+c.ivd+' ';
+        if (c.info && c.info.jdi) el += '<span class="jarrow" id="jd-'+c.info.jdi+'">&darr;</span>';
+        if (c.info && c.info.jdd) el += '<span class="jarrow deleted" id="jd-'+c.info.jdd+'">&darr;</span>';
         el += '<span class="'+span_class+'" style="cursor:pointer;"'; // this.chars_seq[i].csn
+        if (c.ivi) el += 'data-ivi="'+c.ivi+'" ';
+        if (c.ivd) el += 'data-ivd="'+c.ivd+'" ';
         if (c.info) {
-          el += 'data-z='+(c.info.z)+" data-dur="+c.info.dur+" data-jump=\""+(!!c.info.jump)+"\" title=\""+c.info.dur+" "+c.jid+"\" ";
+          el += "data-dur="+c.info.dur+" data-jump=\""+(!!c.info.jump)+"\" title=\""+c.info.dur+"ms; ei="+c.ei+";p0="+c.p0+";p9="+c.p9+"\" ";
         }
-        if (c.jid) {
-          el += 'data-jid="'+c.jid+'" ';
+        if (c.ei) {
+          el += 'data-jid="'+c.ei+'" ';
         }
         el+='>';
         el+=c.c;
         el += "</span>";
-        if (c.info && c.info.ju) el += '<span class="jarrow" id="ju-'+c.info.ju+'">&uarr;</span>';
-        if (last_p !== c.p && existing_paras[c.p] && !this_deleted) { if (last_p) html += '<br><br>'; last_p = c.p; }
-        else if (last_p_including_deleted !== c.p) html += '<span class="deleted">&para;</span>';
+        if (c.info && c.info.jud) el += '<span class="jarrow deleted" id="ju-'+c.info.jud+'">&uarr;</span>';
+        if (c.info && c.info.jui) el += '<span class="jarrow" id="ju-'+c.info.jui+'">&uarr;</span>';
+        if (last_p !== c.p9 && existing_paras[c.p9] && !this_deleted) { if (last_p) html += '<br><br>'; last_p = c.p9; }
+        else if (last_p_including_deleted !== c.p0) html += '<span class="deleted">&para;</span>';
         //if (existing_paras[c.p]) last_p = c.p;
-        last_p_including_deleted = c.p;
+        last_p_including_deleted = c.p0;
         html += el;
       }
 
       this.product.html('<div class="cw-product">'+html+'</div>');
 
-      this.product.prepend('<select id="cw-product-visual"><option selected>pause with-deletions</option><option>jump with-deletions</option><option>pause no-deletions</option><option>jump no-deletions</option></select>');
+      this.product.prepend('<select id="cw-product-visual"><option selected>pause with-deletions</option><option>jump with-deletions</option><option>pause no-deletions</option><option>jump no-deletions</option></select> <button id="cw-product-cutoff">Hide changes after this point</button> <button id="cw-product-showall" style="display:none;">Show all changes</button>');
       $('#cw-product-visual').change(function() {
         that.product_need_visual = $(this).val();
         that.product_render();
       });
+      $('#cw-product-cutoff').click(function() {
+        var z = that.all_data[that.current_i].z;
+        var iv = that.research_z_to_interval(z);
+        
+        $('.pause-char').each(function() {
+          let ivi = parseInt($(this).data('ivi'));
+          if (ivi >= iv) $(this).addClass('product-hidden');
+        });
+
+        $('#cw-product-showall').show();
+        $(this).hide();
+      });
+      $('#cw-product-showall').click(function() {
+        $('.product-hidden').removeClass('product-hidden');
+        $('#cw-product-cutoff').show();
+        $(this).hide();
+      });
 
       $('.pause-char').click(function() {
-        that.research_jump_to($(this).data('z'));
+        if ($(this).hasClass('product-cursor-i') && $(this).data('ivd')) {
+          that.research_jump_to(that.intervals[parseInt($(this).data('ivd'))]);
+        } else {
+          that.research_jump_to(that.intervals[parseInt($(this).data('ivi'))]);
+        }
       });
       $('.jarrow').click(function() {
-        var id = $(this).attr('id').replace(/^.+-/, "");
-        $('.jarrow-matched').removeClass('jarrow-matched');
-        $('#ju-'+id).add('#jd-'+id).addClass('jarrow-matched');
+        var id = $(this).attr('id');
+        if (id) {
+          id = id.replace(/^.+-/, "");
+          $('.jarrow-matched').removeClass('jarrow-matched');
+          $('#ju-'+id).add('#jd-'+id).addClass('jarrow-matched');
+        }
       });
     },
 
     product_render: function() {
       var that=this;
       var z = that.all_data[that.current_i].z;
-      $(".product-cursor").removeClass("product-cursor");
-      $('.pause-char[data-z="'+z+'"]').addClass("product-cursor");
+      $(".product-cursor-i").removeClass("product-cursor-i");
+      $(".product-cursor-d").removeClass("product-cursor-d");
+      var iv = that.research_z_to_interval(z);
+      $('.pause-char.ivi-'+iv).addClass("product-cursor-i");
+      $('.pause-char.ivd-'+iv).addClass("product-cursor-d");
+      
 
       if (this.product_need_visual !== this.product_visual) {
         this.product_visual = this.product_need_visual;
@@ -384,13 +426,13 @@
         } else if (/jump/.test(this.product_visual)) {
           $('.jarrow').show();
           var jid_colors = [
-            '#ffeeee', '#eeffee', '#eeeeff', '#eeffff', '#ffeeff', '#ffffee',
-            '#ff9999', '#99ff99', '#9999ff', '#99ffff', '#ff99ff', '#ffff99'
+            '#FF5555', '#FF7F55', '#FFFF55', '#55FF55', '#AAAAFF', '#4B5582', '#9455D3',
+            '#FFAAAA', '#FF7FAA', '#FFFFAA', '#AAFFAA', '#EEEEFF', '#4BAA82', '#D3AAD3'
           ];
           $('.pause-char').each(function() {
             var jid = $(this).data('jid') || 0;
             if (jid) {
-              $(this).css({backgroundColor: jid_colors[jid-1]});
+              $(this).css({backgroundColor: jid_colors[(jid-1)%jid_colors.length]});
             } else {
               $(this).css({backgroundColor: 'white'});
             }
@@ -688,6 +730,7 @@
         var xy = scale_xy(d.eye);
         this.viewport.append('<div class="cw-fixation"></div>');
         this.viewport.find('.cw-fixation').css({top: xy.y-20, left: xy.x-20});
+        if (d.sr) this.viewport.find('.cw-fixation').addClass('sustained-reading');
       }
       
       this.viewport.find('.cw-saccade').remove();

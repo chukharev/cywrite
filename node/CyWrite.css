@@ -145,6 +145,7 @@ p.right { text-align: right; }
 .cw-position { text-align: center; height: 35px; line-height: 35px; font-weight: bold; font-size: 14px; position:absolute; width: 100%; }
 
 .cw-fixation { border-radius: 50%; width: 40px; height: 40px; position: absolute; opacity: 0.5; border: 2px solid green; background-color: yellow; z-index: 10}
+.sustained-reading { background-color: green; }
 .cw-saccade { border-radius: 50%; width: 30px; height: 30px; position: absolute; opacity: 0.3; border: 2px solid red; background-color: yellow; z-index: 10}
 
 /*background-color: #555555 !important }
@@ -177,12 +178,20 @@ p.right { text-align: right; }
 .deleted {
   text-decoration: line-through;
 }
-.product-cursor {
+.product-cursor-i {
   background-color: black !important;
   color: white !important;
+  text-decoration: none;
 }
-.cw-product.cursor-blinked .product-cursor {
+.product-cursor-d {
+  background-color: red !important;
+  color: yellow !important;
+}
+.cw-product.cursor-blinked .product-cursor-i {
   background-color: #aaaaaa !important;
+}
+.cw-product.cursor-blinked .product-cursor-d {
+  background-color: #ffaaaa !important;
 }
 .jarrow {
   cursor: pointer;
@@ -190,6 +199,9 @@ p.right { text-align: right; }
 .jarrow-matched {
   background-color: blue;
   color: white;
+}
+.product-hidden {
+  opacity: 0.1;
 }
 
 .cw-viewer-message div {
