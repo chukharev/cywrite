@@ -137,7 +137,7 @@
           this.hooks[channel][i].apply(this, [data, channel]);
         }
       }
-      if ((channel === 'key' || channel === 'act' || channel === 'eye') && this.do_incremental_process_analysis) this.do_incremental_process_analysis.call(this, data, channel);
+      if ((channel === 'key' || channel === 'act' || channel === 'eye' || channel === 'cmd') && this.do_incremental_process_analysis) this.do_incremental_process_analysis.call(this, data, channel);
     },
 
     connect_to_server: function() {
@@ -935,6 +935,10 @@
         var pane_width = this.container.width()-this.margin*2 - this.char_width * this.max_cols;
         if (pane_width > this.fb_width*2) lpane_width = rpane_width = parseInt(pane_width/2);
         else lpane_width = pane_width - rpane_width;
+      }
+
+      if (this.editor_css) {
+        $('#editor').css(this.editor_css);
       }
 
       this.viewport

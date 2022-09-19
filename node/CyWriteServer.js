@@ -264,11 +264,14 @@ CW.extend(CW.Clone.prototype, {
 
   destroy: function() {
     if (this.deleted) return;
-    this.deleted = 1;
+    this.deleted = 1; // phase 1 of deletion ==> db3_do's still allowed
     var that=this;
     this.log('info', 'destroying clone');
     delete CW.clones[this.token];
     this.save_document(false, function() {
+      
+      that.deleted = 2; // phase 2 of deletion ==> no further db3_do's allowed
+
       if (!CW.is_empty_object(that.viewers)) { that.log('info', 'removing viewers'); for (var o in that.viewers) that.remove_viewer(that.viewers[o]); }
       if (that.queue) { that.log('info', 'destroying queue', that.queue.name); if (that.ctag) that.queue.unsubscribe(that.ctag); that.queue.destroy(); delete that.queue; } 
       if (that.conn) { that.log('info', 'disconnecting client'); that.conn.write('goodbye'); that.conn.end(); delete that.conn; }
@@ -373,7 +376,7 @@ CW.extend(CW.Clone.prototype, {
 
   db3_do: function(sql, args1, callback) {
     var that = this;
-    if (this.db3 && !this.deleted) {
+    if (this.db3 && this.deleted !== 2) {
       var db3 = this.db3;
       this.db3.serialize(function() {
         var stmt = db3.prepare(sql);

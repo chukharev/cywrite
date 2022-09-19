@@ -48,7 +48,7 @@ Async.series([
       if (/\.html$/.test(file)) app.get('/w/'+file.slice(0, -5), (req, res) => res.sendFile(__dirname + '/' + file, {maxAge: 0}));
     }
 
-    app.get(node_prefix+'/download', function (req, res) {
+    app.get(node_prefix+'download', function (req, res) {
       var token = req.param("token");
       var clone = CW.clones[token];
       if (clone) {
@@ -64,9 +64,25 @@ Async.series([
         res.send('error');
       }
     });
+    
+    app.get(node_prefix+'image', function (req, res) {
+      var token = req.param("token");
+      var clone = CW.clones[token];
+      if (clone && clone.eyetracker_image) {
+        const img = clone.eyetracker_image;
+        res.writeHead(200, {
+           'Content-Type': 'text/plain',
+           'Content-Length': img.length
+        });
+        res.end(img); 
+      } else {
+        res.send('error');
+      }
+    });
 
     app.use('/api/v1' + (CW.config.api_secret ? '/'+CW.config.api_secret : ''), api_v1);
     app.use('/api/research', api_research);
+    app.use('/static', express.static(__dirname + '/static'));
 
     app.get('/', (req, res) => res.redirect(302, '/w/debug')); 
 

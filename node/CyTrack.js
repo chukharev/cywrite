@@ -62,6 +62,21 @@
       }
 
       this.display = display;
+      if (this.display_settings) CW.extend(this.display, this.display_settings);
+
+      var that = this;
+      this.display.log = function() {
+        var out = Array();
+        for (var i=0; i<arguments.length; i++) {
+          out.push(JSON.parse(JSON.stringify(arguments[i])));
+        }
+        console.log.apply(console, out);
+        try {
+          fs.appendFileSync('sessions/'+that.display.token+'.log', JSON.stringify(out) + "\n");
+        } catch(e) {
+        }
+      }
+      
       this.status = 'off';
       this.display.toolbar.prepend('<div class="btn-group"><button type="button" class="btn btn-default fa fa-eye"></button><button type="button" class="btn btn-danger cw-btn-start">Begin Session</button></div>');
       this.display.track = this;
@@ -114,9 +129,11 @@
         delete that.gp_socket;
         console.log('************** Gazepoint is starting now...');
         var exec_path = '\\gazepoint\\gazepoint\\bin\\gazepoint.exe';
+        var exec_path_64 = '\\gazepoint\\gazepoint\\bin64\\gazepoint.exe';
         var try_path = function(path, next) { fs.exists(path, function(yes) { if (yes) { child_process.execFile(path); CW.async(that, 'gp_connect', 10000); } else if (next) next(); return; });};
         if (process.env['ProgramFiles(x86)']) try_path(process.env['ProgramFiles(x86)'] + exec_path, function() {
-          if (process.env['ProgramFiles']) try_path(process.env['ProgramFiles'] + exec_path, function() { that.gp_failed(); });
+          try_path(process.env['ProgramFiles(x86)'] + exec_path_64, function() { that.gp_failed(); });
+          //if (process.env['ProgramFiles']) try_path(process.env['ProgramFiles'] + exec_path, function() { that.gp_failed(); });
         });
       });
     },
@@ -138,7 +155,13 @@
       this.gp_send(
         '<SET ID="IMAGE_TX" ADDRESS="'+UDP_IP+'" PORT="'+UDP_PORT+'" />',
         '<SET ID="ENABLE_SEND_IMAGE" STATE="1" />',
-      '<SET ID="ENABLE_SEND_TIME" STATE="1" />', '<SET ID="ENABLE_SEND_POG_FIX" STATE="1" />', '<SET ID="ENABLE_SEND_POG_BEST" STATE="1" />', '<SET ID="ENABLE_SEND_DATA" STATE="1" />', '<GET ID="CALIBRATE_RESULT_SUMMARY" />', '<GET ID="SCREEN_SIZE" />');
+        '<SET ID="ENABLE_SEND_TIME" STATE="1" />',
+        '<SET ID="ENABLE_SEND_POG_FIX" STATE="1" />',
+        '<SET ID="ENABLE_SEND_POG_BEST" STATE="1" />',
+        '<SET ID="ENABLE_SEND_DATA" STATE="1" />',
+        '<GET ID="CALIBRATE_RESULT_SUMMARY" />',
+        '<GET ID="SCREEN_SIZE" />'
+      );
     },
 
     gp_failed: function() {
@@ -164,7 +187,12 @@
     gp_process_data: function() {
       var that=this;
 
-      fs.appendFileSync('gp_log.txt', this.gp_buffer);
+      const write_eye_event_to_file = function(event) {
+        delete event.cur_row;
+        delete event.cur_col;
+        event.t = Date.now();
+        fs.appendFileSync('sessions/'+that.display.token+'.eye', JSON.stringify(event) + "\n");
+      }
 
       this.gp_buffer = read_tag(this.gp_buffer, function(tag_name, values) {
         if (values.time) {
@@ -173,8 +201,6 @@
           var diff = d-values.time;
         }
 
-        // if (!that.throttle) that.throttle = 1;
-       
         if (tag_name == 'CAL' && values.id == 'CALIB_RESULT') {
           that.is_calibrating = false;
           that.has_calibrated = true;
@@ -192,19 +218,26 @@
             bootbox.alert('<div style="text-align:center;">Calibration completed<div style="font-size: 100px;">'+values.ave_error+'</div></div>');
           }
           var d0 = CW.extend({}, { k: 'cal', data: values });
+          delete that.gp_last_s;
           that.display.socket.send('eye', d0);
         } else if (tag_name == 'ACK' && values.id == 'SCREEN_SIZE') {
           that.screen_size = values;
         } else if (tag_name == 'REC' && that.calibration && that.screen_size && that.screen_delta) {
-          if ('bpogx' in values) { //  && (that.throttle++) % 2
-            //<REC BPOGX="0.47175" BPOGY="0.43360" BPOGV="1" />
+          if ('bpogx' in values) {
+            var is_ignore = 0;
+            if (!that.gp_last_s) that.gp_last_s = 0;
+            if (that.gp_sample_throttle && values.time > that.gp_last_s && values.time - that.gp_last_s < that.gp_sample_throttle/1000) is_ignore = 1;
+            else that.gp_last_s = values.time;
+
             if (values.bpogv) {
               fix = that.gp_calc_fixation(values, 'b');
               CW.extend(fix, { k: 's', start: parseInt(values.time * 1000) });
-              that.display.socket.send('eye', fix);
+              if (is_ignore) write_eye_event_to_file(fix);
+              else that.display.socket.send('eye', fix);
             } else {
               fix = { k: 's', x: -10000, y: -10000, start: parseInt(values.time * 1000) };
-              that.display.socket.send('eye', fix);
+              if (is_ignore) write_eye_event_to_file(fix);
+              else that.display.socket.send('eye', fix);
             }
           }
           
@@ -216,13 +249,13 @@
                 CW.extend(fix, { k: 'end', start: parseInt(values.fpogs * 1000), dur: parseInt(values.fpogd * 1000) });
                 that.display.socket.send('eye', fix);
                 delete that.fixation;
-                console.log("END");
+                //console.log("END");
               } else {
                 that.fixation = values;
                 fix = that.gp_calc_fixation(values, 'f');
                 CW.extend(fix, { k: 'fix', start: parseInt(values.fpogs * 1000) });
                 that.display.socket.send('eye', fix);
-                console.log("FIX");
+                //console.log("FIX");
               }
             }
             /*if (values.fpogv && values.fpogd && that.fixation) {
@@ -241,7 +274,11 @@
     },
     
     gp_image_data: function(d) {
+      const now = Date.now();
+      if (this.gp_image_throttle && now - (this.gp_last_image||0) < this.gp_image_throttle) return;
+      this.gp_last_image = now;
       this.display.socket.send_noack('img', { b: d.toString('base64', 8), k: 'gazepoint' });
+      
       //alert(d.toString('base64', 8).length);
     },
 
