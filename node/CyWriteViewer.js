@@ -519,6 +519,23 @@
       this.research_render();
     },
 
+/*    draw_image: function() {
+      var that=this;
+      if (!$('#cw-viewer-img').length) {
+        this.container.append('<div id="cw-viewer-img" style="display:none;"><img /></div>');
+        this.container.find('#cw-viewer-img').on('load', function() { that.is_image_loaded = true; });
+      }
+      const img = $('#cw-viewer-img');
+      if (img.is(':visible')) {
+        $.get("/node/image?token="+this.token, function(x) {
+          console.log(x);
+          img.attr("src", "data:image/png;base64,"+x);
+        });
+        that.is_image_loaded = false;
+        img.attr('src', '/node/image?token='+this.token+'&r='+Date.now()+Math.random());
+      }
+    },*/
+
     connect: function() {
       var sockjs_url = '/node/sock';
       var sockjs = new SockJS(sockjs_url);
@@ -532,7 +549,9 @@
         if (that.active) CW.async(that, 'connect', 5000);
       };
       sockjs.onmessage = function(e) { that.on_data(e.data) };
+
       return this;
+
     },
 
     init: function() {
@@ -575,7 +594,8 @@
       if (this.role === 'live') {
         this.toolbar.append('<div class="btn-group"><button type="button" class="btn btn-default fa fa-arrows-alt"></button>'+
         '<button type="button" class="btn btn-default fa fa-eye"></button>'+
-        '<button type="button" class="btn btn-default fa fa-search"></button>'+
+        '<button type="button" class="btn btn-default fa fa-dot-circle-o"></button>'+
+        '<button type="button" class="btn btn-default fa fa-search-plus"></button>'+
         '</div>');
       }
       if (this.role === 'research')
@@ -591,8 +611,15 @@
         if (window.confirm('Are you sure you want to start re-calibration?'))
           t.sockjs.send(JSON.stringify({ cmd: 'click', data: { button: '.fa-eye' } }));
       });
-      this.toolbar.find('.fa-search').click(function(){
-        t.container.find('#cw-viewer-img').toggleClass('zoom');
+      this.toolbar.find('.fa-search-plus').click(function(){
+        const img = t.container.find('#cw-viewer-img');
+        img.toggleClass('zoom');
+      });
+      this.toolbar.find('.fa-dot-circle-o').click(function(){
+        t.image_requested = !t.image_requested;
+        if (t.image_requested) t.toolbar.find('.fa-dot-circle-o').addClass('btn-success'); else t.toolbar.find('.fa-dot-circle-o').removeClass('btn-success');
+        if (!t.image_requested) $('#cw-viewer-img').remove();
+        t.sockjs.send(JSON.stringify({ image_requested: t.image_requested }));
       });
       this.toolbar.find('.fa-arrows-alt').click(function(){
         bootbox.dialog({
@@ -704,10 +731,10 @@
     draw: function() {
       var d = this.data;
 
-      if (d.img) {
+/*      if (d.img) {
         if (!$('#cw-viewer-img').length) this.container.append('<div id="cw-viewer-img"><img /></div>');
         $('#cw-viewer-img img').attr('src', 'data:image/png;base64, '+d.img.b);
-      }
+      }*/
 
       if (d.config && d.config.label) {
         var lbl = '';
@@ -882,10 +909,25 @@
     },
 
     on_data: function(data) {
+      if (!this.has_received_data) {
+        this.has_received_data = true;
+        this.toolbar.find('.fa-dot-circle-o').click();
+      }
+      if (data === 'goodbye') {
+        $('.cw-viewer-label').html('<font color=red>This session has ended</font>');
+        this.destroy();
+        return;
+      }
+
+      var old_eye_image_seq = this.data.eye_image_seq;
       var d = JSON.parse(data);
       CW.extend(this.data, d);
       this.resize();
       this.draw();
+      if (d.img) {
+        if (!$('#cw-viewer-img').length) this.container.append('<div id="cw-viewer-img"><img /></div>');
+        $('#cw-viewer-img img').attr('src', 'data:image/png;base64, '+d.img.b);
+      }
       this.sockjs.send(JSON.stringify({ok:1}));
     },
 

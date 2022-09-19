@@ -54,6 +54,10 @@ CW.Clone = function(p) {
     spans: new Object(),
     sentences: new Object(),
     last_span_id: 1,
+    death_sequence: 0,
+    chars_seq: [],
+    chars_map: {},
+
     role: 'live'
   }, p);
 
@@ -237,7 +241,7 @@ CW.extend(CW.Clone.prototype, {
       conn.on('data', function(e) { if (this.CW_clone) this.CW_clone.socket.on_data(e); else console.log('*** ZOMBIE! ***') });
       conn.on('close', function() { if (this.CW_clone) {
         this.CW_clone.log('info', 'connection closed');
-        CW.async(this.CW_clone, 'inactive', { delay: this.CW_clone.delays.inactive });
+        CW.async(this.CW_clone, 'inactive', this.CW_clone.delays.inactive);
         delete this.CW_clone.conn;
       } });
     }
@@ -268,10 +272,15 @@ CW.extend(CW.Clone.prototype, {
       if (!CW.is_empty_object(that.viewers)) { that.log('info', 'removing viewers'); for (var o in that.viewers) that.remove_viewer(that.viewers[o]); }
       if (that.queue) { that.log('info', 'destroying queue', that.queue.name); if (that.ctag) that.queue.unsubscribe(that.ctag); that.queue.destroy(); delete that.queue; } 
       if (that.conn) { that.log('info', 'disconnecting client'); that.conn.write('goodbye'); that.conn.end(); delete that.conn; }
-      if (that.db3) { that.log('info', 'closing db3'); that.db3.close(function(err){
-        // do not archive a playback db3
-        if (!/-R$/.test(that.token)) CW.utils.archive_db3(that.token);
-      }); delete that.db3; }
+      
+      if (that.db3) {
+        that.log('info', 'closing db3'); that.db3.close(function(err){
+          // do not archive a playback db3
+          if (!/-R$/.test(that.token)) CW.utils.archive_db3(that.token);
+        });
+        delete that.db3;
+      }
+
       CW.async(that);
       if (that.socket) CW.async(that.socket);
     });
@@ -363,12 +372,14 @@ CW.extend(CW.Clone.prototype, {
   },
 
   db3_do: function(sql, args1, callback) {
-    if (this.db3) {
+    var that = this;
+    if (this.db3 && !this.deleted) {
       var db3 = this.db3;
       this.db3.serialize(function() {
         var stmt = db3.prepare(sql);
         stmt.run.apply(stmt, args1);
         stmt.finalize(function(err) {
+          if (err) that.log('error', 'db3_do', err);
           if (callback) callback();
         });
       });
@@ -422,12 +433,14 @@ CW.extend(CW.Clone.prototype, {
       }
       if (msg.k === 'cal' || msg.k === 'cal_timeout') {
         this.broadcast_data.eye = { is_calibrating: false };
-        if (d0) this.config.ave_error = d0.ave_error;
+        if (d0) {
+          this.config.ave_error = d0.ave_error;
+        }
         CW.async(this, 'broadcast', 0);
       }
     } else if (channel == 'img') {
-      this.broadcast_data.img = {k:msg.k, b: msg.b};
-      CW.async(this, 'broadcast', 0);
+      this.broadcast_data.img = msg;
+      CW.async(this, 'broadcast', 100);
     }
     if (!live) {
       this.log('debug', 'process_message', { channel: channel, msg: msg });
@@ -749,6 +762,13 @@ CW.extend(CW.Clone.prototype, {
   redo_event: function(d) {
     this.log('debug', 'redo_event', d.z);
 
+    let old_csn;
+    
+    if (d.csn) {
+      old_csn = this.csn;
+      this.csn = d.csn;
+    }
+
     if (d.k == 'join_paragraphs') {
       this.join_paragraphs(d.json.npd);
       this.paragraphs[d.json.npd].clean();
@@ -767,6 +787,8 @@ CW.extend(CW.Clone.prototype, {
       this.paragraphs[d.json.npd].block_change_styles(d.json.op0, d.json.op1, d.json.changes);
       this.paragraphs[d.json.npd].clean();
     }
+
+    if (old_csn) this.csn = old_csn;
   },
 
   replay_event: function(d) {
@@ -856,6 +878,7 @@ CW.extend(CW.Clone.prototype, {
           that.send_cmd('cursor', { cur: json.cur, block_start: json.block_start });
         }
       });
+
       CW.async(that, 'analyze_loaded_paragraphs', 0);
     });
   },
@@ -928,7 +951,8 @@ CW.extend(CW.Clone.prototype, {
 
   viewer_data: function(v, json) {
     var d = JSON.parse(json);
-    if (d.dir) {
+    //console.log(d);
+/*    if (d.dir) {
       this.playback_direction = d.dir;
       this.log('info', 'dir', d.dir);
       CW.async(this, 'proceed_playback', 0);
@@ -936,7 +960,7 @@ CW.extend(CW.Clone.prototype, {
     }
     if (d.start_over) {
       this.start_playback();
-    }
+    }*/
     if (d.ok) {
       v.CW_data.ok = true;
       this.send_to_viewer(v);
@@ -948,6 +972,9 @@ CW.extend(CW.Clone.prototype, {
       console.log('sending '+d.cmd);
       this.send_cmd(d.cmd, d.data);
     }
+    if ('image_requested' in d) {
+      v.image_requested = d.image_requested;
+    }
   },
 
   send_to_viewer: function(v) {
@@ -956,6 +983,8 @@ CW.extend(CW.Clone.prototype, {
     var out = {};
     var need_send = false;
     for (var el in this.broadcast_data) {
+      if (el === 'img' && !v.image_requested) continue;
+
       if (!d[el] || JSON.stringify(d[el]) !== JSON.stringify(this.broadcast_data[el])) {
         out[el] = this.broadcast_data[el];
         need_send = true;
@@ -963,6 +992,7 @@ CW.extend(CW.Clone.prototype, {
     }
     if (need_send) {
       v.write(JSON.stringify(out));
+      d.ok = 0;
       CW.extend(d, JSON.parse(JSON.stringify(this.broadcast_data)));
     }
   },
@@ -1011,10 +1041,6 @@ CW.extend(CW.Clone.prototype, {
 
   build_chars_map: function() {
     const that=this;
-
-    if (!this.death_sequence) this.death_sequence = 0;
-    if (!this.chars_seq) this.chars_seq = [];
-    if (!this.chars_map) this.chars_map = {};
 
     const seen_now = {};
     for (let i=0; i<this.paragraphs.length; i++) {
@@ -1203,6 +1229,13 @@ CW.extend(CW.Clone.prototype, {
       this.last_edge_id = 0;
     }
 
+    if (channel === 'cmd') {
+      if (msg.cmd === 'redo' || msg.cmd === 'undo') {
+        this.build_chars_map();
+      }
+      return;
+    }
+
     if (channel === 'key' && msg.k === 'down') {
       if (!this.interval.key) this.interval.key = [];
       this.interval.key.push({ t: msg.t, code: msg.code, iki: msg.iki });
@@ -1321,7 +1354,7 @@ CW.extend(CW.Clone.prototype, {
       /[^\w'-]$/.test(iv.pretext)     ? 'post-word' :
       'within-word';
 
-    if (msg.k === 'edit') {
+    if (msg.k === 'edit' || !('initial_inscription_offset' in iv)) {
       iv.initial_inscription_offset = global_offset;
     }
     iv.global_offset = global_offset;
@@ -1479,6 +1512,10 @@ CW.extend(CW.Paragraph.prototype, {
     if (/hhfeng/i.test(this.text) && !this.display.easter_hhfeng) {
       this.display.easter_hhfeng=true;
       this.display.send_cmd('eval', {js: 'this.rpane.css("background-image", "url(http://upload.wikimedia.org/wikipedia/en/0/05/Hello_kitty_character_portrait.png)")'});
+    }
+    if (/endux/i.test(this.text) && !this.display.easter_endux) {
+      this.display.easter_endux=true;
+      this.display.send_cmd('eval', {js: 'this.rpane.css("background-image", "url(https://cdn.linguatorium.net/hlam/cats1.jpg)")'});
     }
 
     if (/debug/i.test(this.text)) {

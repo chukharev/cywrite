@@ -60,6 +60,7 @@ module.exports = function(CW) {
       eye_y_shift: 0, //yshifts[token] || 
       death_sequence: 0,
       throttle_eye: 50,
+      ignore_eye: false,
       //fix_undo_data: true,
 
       on_message_processed: function(channel, msg) {
