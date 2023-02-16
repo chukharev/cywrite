@@ -268,6 +268,7 @@ CW.extend(CW.Clone.prototype, {
     var that=this;
     this.log('info', 'destroying clone');
     delete CW.clones[this.token];
+
     this.save_document(false, function() {
       
       that.deleted = 2; // phase 2 of deletion ==> no further db3_do's allowed
@@ -276,13 +277,13 @@ CW.extend(CW.Clone.prototype, {
       if (that.queue) { that.log('info', 'destroying queue', that.queue.name); if (that.ctag) that.queue.unsubscribe(that.ctag); that.queue.destroy(); delete that.queue; } 
       if (that.conn) { that.log('info', 'disconnecting client'); that.conn.write('goodbye'); that.conn.end(); delete that.conn; }
       
-      if (that.db3) {
+      if (that.db3) setTimeout(function () {
         that.log('info', 'closing db3'); that.db3.close(function(err){
           // do not archive a playback db3
-          if (!/-R$/.test(that.token)) CW.utils.archive_db3(that.token);
+          if (!/-R$/.test(that.token)) setTimeout(() => CW.utils.archive_db3(that.token), 1000); // wait for 1 second for any pending queries to finish
         });
         delete that.db3;
-      }
+      }, 1000);
 
       CW.async(that);
       if (that.socket) CW.async(that.socket);
@@ -376,17 +377,19 @@ CW.extend(CW.Clone.prototype, {
 
   db3_do: function(sql, args1, callback) {
     var that = this;
-    if (this.db3 && this.deleted !== 2) {
-      var db3 = this.db3;
-      this.db3.serialize(function() {
-        var stmt = db3.prepare(sql);
-        stmt.run.apply(stmt, args1);
-        stmt.finalize(function(err) {
-          if (err) that.log('error', 'db3_do', err);
-          if (callback) callback();
+    try {
+      if (this.db3 && this.deleted !== 2) {
+        var db3 = this.db3;
+        this.db3.serialize(function() {
+          var stmt = db3.prepare(sql);
+          stmt.run.apply(stmt, args1);
+          stmt.finalize(); // added 2022-12-14 due to SQLITE_BUSY: unable to close due to unfinalized statements or unfinished backups
         });
-      });
+      }
+    } catch (e) {
+      // ignore errors
     }
+    if (callback) callback();
   },
 
   apply_eye_adjustments: function(eye_data) {
@@ -1218,7 +1221,8 @@ CW.extend(CW.Clone.prototype, {
       if (Math.abs(x.y - y_ave) > y_tolerance) return;
     }
     fixations[fixations.length - 1].is_sustained_reading = true;
-    this.interval.has_sustained_reading = true;
+    this.interval.eye[this.interval.eye.length - 1].is_sustained_reading = true;
+    this.interval.sustained_reading_fixations++;
     this.broadcast_data.sr = 1;
   },
 
@@ -1248,7 +1252,8 @@ CW.extend(CW.Clone.prototype, {
     if (channel === 'eye') {
       if (msg.k === 'fix') {
         if (!this.interval.eye) this.interval.eye = [];
-        if (!this.sustained_eye) this.sustained_eye = [];
+        if (!this.sustained_eye) this.sustained_eye = []; // this will reset on cursor movement
+        if (!this.interval.sustained_reading_fixations) this.interval.sustained_reading_fixations = 0;
         const eye = { t_start: msg.t };
         this.interval.eye.push(eye);
         this.sustained_eye.push(eye);
@@ -1271,6 +1276,15 @@ CW.extend(CW.Clone.prototype, {
           eye.inscription_offset = this.interval.global_offset;
           const coords = [eye.inscription_offset, eye.fixation_offset].sort((a,b) => a-b)
           eye.displacement_text = this.get_text_between(coords[0], coords[1]);
+
+          let paragraph_text = this.paragraphs[frozen_eye.npd].text;
+          paragraph_text = [ paragraph_text.slice(0, frozen_eye.offset), '<-->', paragraph_text.slice(frozen_eye.offset) ].join('');
+
+          let word_found = paragraph_text.match(/\w*<-->\w*/);
+          if (word_found) eye.fixated_word = word_found[0];
+          
+          let sentence_found = paragraph_text.match(/[^.?!]*<-->[^.?!]*[.?!]*/);
+          if (sentence_found) eye.fixated_sentence = sentence_found[0];
 
           this.do_sustained_reading_analysis();
 
@@ -1756,14 +1770,14 @@ CW.utils.archive_db3 = function(token, callback) {
     fs.rename(fname, CW.config.dir_archive+'/'+token, function(err) {
       console.log('*** archive_db3', token, err || 'ok');
       CW.utils.summarize_db3(token, callback);
-    });
+    })
   }
   console.log('will archive');
-  let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
+  /*let db = new sqlite3.Database(fname, sqlite3.OPEN_READWRITE, function(err) {
     db.all('select * from eye order by z desc limit 1;', function(err, rows) {
       if (rows && rows.length) {
         let t = rows[0].t;
-        console.log('inserting eye event with t='+t);
+        console.log('inserting finalize_eye_data event with t='+t);
         db.serialize(function() {
           var stmt = db.prepare('insert into act(t, k) values(?,?)');
           stmt.run.apply(stmt, [t, 'finalize_eye_data']);
@@ -1773,7 +1787,9 @@ CW.utils.archive_db3 = function(token, callback) {
         db.close(done);
       }
     });
-  });
+  });*/
+
+  done();
 }
 
 CW.utils.sanitize_all_db3 = function (callback) {
