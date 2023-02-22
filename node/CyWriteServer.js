@@ -1206,8 +1206,11 @@ CW.extend(CW.Clone.prototype, {
   do_sustained_reading_analysis: function() {
     this.broadcast_data.sr = 0;
     const fixations = this.sustained_eye;
-    if (fixations.length < 3) return;
-    const last = fixations.slice(-3);
+    const seq_length = 3; // length of a sustained reading sequence
+    const y_tolerance = 100;
+
+    if (fixations.length < seq_length) return;
+    const last = fixations.slice(-seq_length);
     let y_sum = 0;
     for (let x of last) {
       if (!x.is_text_fixated) return;
@@ -1215,14 +1218,21 @@ CW.extend(CW.Clone.prototype, {
     }
     let y_ave = y_sum / last.length;
 
+    // this currently doesn't use seq_length, and uses some magic numbers
+    // revise to be more general?
     if (!(last[2].x > last[1].x && last[1].x > last[0].x && last[1].x - last[0].x < this.char_width * 25 && last[2].x - last[1].x < this.char_width * 25)) return;
-    const y_tolerance = 100;
+    
     for (let x of last) {
       if (Math.abs(x.y - y_ave) > y_tolerance) return;
     }
-    fixations[fixations.length - 1].is_sustained_reading = true;
-    this.interval.eye[this.interval.eye.length - 1].is_sustained_reading = true;
-    this.interval.sustained_reading_fixations++;
+
+    for (let i=1; i<=seq_length; i++) {
+      if (!fixations[fixations.length - i].is_sustained_reading) {
+         fixations[fixations.length - i].is_sustained_reading = true;
+         this.interval.eye[this.interval.eye.length - i].is_sustained_reading = true;
+         this.interval.sustained_reading_fixations++;
+      }
+    }
     this.broadcast_data.sr = 1;
   },
 
