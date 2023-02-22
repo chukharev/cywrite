@@ -44,6 +44,21 @@ function process_token(token, cb) {
     }
   });
 
+  let mod_time = 0;
+  let mod_gap = 0;
+
+  r.register_hook('key', function(msg) {
+    if (msg.k === 'down') {
+      if (msg.code === 16 || msg.code === 17 || msg.code === 18) {
+        if (!mod_time) mod_time = msg.t;
+        mod_gap = 0;
+      } else {
+        mod_gap++;
+        if (mod_gap > 2) mod_time = 0;
+      }
+    }
+  });
+
   r.register_hook('act', function(msg) {
     if (msg.k === 'edit' || msg.k === 'split_paragraphs') {
       var go = this.global_offset(msg);
@@ -71,8 +86,9 @@ function process_token(token, cb) {
       }
       var debug = (msg.len ? '<' : '') + msg.repl;
       
-      key_output.push([debug, msg.t, msg.z, p_number, is_production?'P':msg.len>0?'D':'OTHER_EVENT', go, go-old_inscription, is_production?this.global_length()-inscription-1:'-', is_production?location:'-']);
+      key_output.push([debug, msg.t, mod_time || 'NA', msg.z, p_number, is_production?'P':msg.len>0?'D':'OTHER_EVENT', go, go-old_inscription, is_production?this.global_length()-inscription-1:'-', is_production?location:'-']);
       block_cursor=1;
+      mod_time = mod_gap = 0;
     }
 
     if (msg.k === 'cursor') {
@@ -80,7 +96,7 @@ function process_token(token, cb) {
         block_cursor = false;
         return;
       }
-      key_output.push([debug, msg.t, msg.z, p_number, 'C', '-', '-', '-', '-']);
+      key_output.push([debug, msg.t, 'NA', msg.z, p_number, 'C', '-', '-', '-', '-']);
     }
   });
 
@@ -144,7 +160,7 @@ function process_token(token, cb) {
   var output = function(file, line) {
     fs.appendFileSync(output_folder+'/'+signature+'_'+file+'.txt', line+"\n")
   }
-  fs.writeFileSync(output_folder+'/'+signature+'_key.txt', ["Debug", "Timestamp_Long", "Z", "P_Index", "Event", "Offset", 'Displ', 'Edge', 'Location', 'Transition'].join("\t") + "\n");
+  fs.writeFileSync(output_folder+'/'+signature+'_key.txt', ["Debug", "Timestamp_Long", "Timestamp_Mod_Long", "Z", "P_Index", "Event", "Offset", 'Displ', 'Edge', 'Location', 'Transition'].join("\t") + "\n");
   fs.writeFileSync(output_folder+'/'+signature+'_eye.txt', ["Timestamp_Long", "Duration", "Displ", "Words", "Sentences", "Kind"].join("\t") + "\n");
   r.start_playback();
 }
