@@ -30,11 +30,19 @@
 
   <script>
     $(document).ready(function(){
-      var token = document.location.search.substr(1);
+      var tokens = document.location.search.substr(1);
+      var token_arr = tokens.split(";");
+      var token = token_arr[0];
+      var clip_str = token_arr[1];
+      var clip;
+      if (clip_str) {
+        var sp = clip_str.split('-');
+        clip = { start: sp[0], stop: sp[1] };
+      }
       if (!token) {
         document.location = 'shutdown.html';
       } else {
-        $('#viewer').CW_viewer({token: token});
+        $('#viewer').CW_viewer({token: token, clip: clip});
       }
     });
   </script>

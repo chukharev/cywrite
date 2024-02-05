@@ -1385,7 +1385,7 @@
       this.freeze_cursor();
       var max_row = this.paragraphs[this.paragraphs.length-1].nrd1;
       var row_height = this.char_height+this.interline;
-      var top_row = parseInt(this.scrollbar.scrollTop()/row_height+0.5);
+      var top_row = Math.ceil(this.scrollbar.scrollTop()/row_height);
       if (top_row < 0) top_row = 0;
       if (top_row > max_row) top_row = max_row;
       this.top_row = top_row;

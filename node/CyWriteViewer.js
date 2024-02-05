@@ -138,154 +138,171 @@
         that.current_i = 0;
         CW.async(that, 'research_render', 0);
         $('.progress').remove();
-        that.toolbar.addClass('cw-toolbar-graph');
-        that.toolbar.append('<div id="cw-ps-toolbar"></div><div id="cw-ps-graph"></div>');
-        that.ps_toolbar = $('#cw-ps-toolbar');
-        $("#cw-ps-graph").bind("plotclick", function (event, pos, item) {
-          that.current_t = parseInt(pos.x * 60000);
-          CW.async(that, 'research_render', 1);
-        });
 
-        var apnd = '<div class="dropdown" style="float: left;"><button class="btn btn-danger dropdown-toggle" type="button" data-toggle="dropdown">Metrics <span class="caret"></span></button>'+
-        '<ul class="dropdown-menu">';
-        for (var o in that.research_metrics) {
-          var dspl = that.research_metrics[o].hidden ? ' style="display: none;"' : '';
-          apnd += '<li><a href="#" class="cw-ps-a-metric" data-metric="'+o+'">'+
-          (that.research_metrics[o].color ? '<span class="glyphicon glyphicon-minus" style="color: '+that.research_metrics[o].color+'"></span>' : '') +
-          (that.research_metrics[o].icon ? '<span class="'+that.research_metrics[o].icon+'"></span>' : '') +
-          ' '+that.research_metrics[o].title+
-          ' <span class="glyphicon glyphicon-ok"'+dspl+'></span>' +
-          '</a></li>';
+        if (!that.clip) { /// that.clip
+
+          that.toolbar.addClass('cw-toolbar-graph');
+          that.toolbar.append('<div id="cw-ps-toolbar"></div><div id="cw-ps-graph"></div>');
+          that.ps_toolbar = $('#cw-ps-toolbar');
+          $("#cw-ps-graph").bind("plotclick", function (event, pos, item) {
+            that.current_t = parseInt(pos.x * 60000);
+            CW.async(that, 'research_render', 1);
+          });
+
+          var apnd = '<div class="dropdown" style="float: left;"><button class="btn btn-danger dropdown-toggle" type="button" data-toggle="dropdown">Metrics <span class="caret"></span></button>'+
+          '<ul class="dropdown-menu">';
+          for (var o in that.research_metrics) {
+            var dspl = that.research_metrics[o].hidden ? ' style="display: none;"' : '';
+            apnd += '<li><a href="#" class="cw-ps-a-metric" data-metric="'+o+'">'+
+            (that.research_metrics[o].color ? '<span class="glyphicon glyphicon-minus" style="color: '+that.research_metrics[o].color+'"></span>' : '') +
+            (that.research_metrics[o].icon ? '<span class="'+that.research_metrics[o].icon+'"></span>' : '') +
+            ' '+that.research_metrics[o].title+
+            ' <span class="glyphicon glyphicon-ok"'+dspl+'></span>' +
+            '</a></li>';
+          }
+
+          apnd += '</ul></div>';
+          that.ps_toolbar.append(apnd);
+          that.ps_toolbar.append('<div class="btn-group" role="group" style="float:left; margin-left:10px;">'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play--10" data-play="-10"><i class="fa fa-backward"></i></button>'+
+            '<button type="button" class="btn btn-primary cw-btn-play cw-btn-play-0" data-play="0"><i class="fa fa-pause"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-05" data-play="0.5">0.5x <i class="fa fa-play"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-1" data-play="1"><i class="fa fa-play"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-2" data-play="2">2x <i class="fa fa-forward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-3" data-play="3">3x <i class="fa fa-forward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-10" data-play="10">10x <i class="fa fa-forward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-20" data-play="20">20x <i class="fa fa-forward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-backward"><i class="fa fa-step-backward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-forward"><i class="fa fa-step-forward"></i></button>'+
+            '<button type="button" class="btn btn-default cw-btn-find"><i class="fa fa-search"></i></button>'+
+          '</div>');
+          that.ps_toolbar.append('<div class="dropdown" style="float:left; margin-left:10px;">'+
+            '<button type="button" class="btn btn-primary" data-toggle="dropdown">View <span class="caret"></span></button>'+
+            '<ul class="dropdown-menu">'+
+            '<li><a href="#" class="cw-ps-a-view-summary">Summary</li>'+
+            '<li><a href="#" class="cw-ps-a-view-html-final">Final text</li>'+
+            '<li><a href="#" class="cw-ps-a-view-mode" id="cw-menu-process" data-mode="process"><u>P</u>rocess graph</li>'+
+            '<li><a href="#" class="cw-ps-a-view-mode" id="cw-menu-differential" data-mode="differential"><u>D</u>ifferential graph</li>'+
+            '<li><a href="#" class="cw-ps-a-render-mode" id="cw-menu-playback" data-mode="playback">Play<u>b</u>ack</li>'+
+            '<li><a href="#" class="cw-ps-a-render-mode" id="cw-menu-product" data-mode="product">Produc<u>t</u></li>'+
+            //'<li><a href="#" class="cw-ps-a-view-flip">Flip vertically</li>'+
+            //'<li><a href="#" class="cw-ps-a-view-img">Graph as image</li>'+
+            '</ul>'+
+          '</div>');
+
+          that.ps_toolbar.append('<div class="cw-viewer-timer">00:00:00</div><div class="cw-viewer-label"></div>');
+          /*var click_count=0;
+          that.ps_toolbar.find(".cw-viewer-timer").click(function() {
+            click_count++;
+            if (click_count>4) that.ps_toolbar.addClass('cw-tech-show');
+          });*/
+
+          that.ps_toolbar.addClass('cw-tech-show');
+              
+          $('.cw-btn-play').click(function(e) {
+            $('.cw-btn-play').removeClass('btn-primary').addClass('btn-default');
+            $(this).addClass('btn-primary').removeClass('btn-default');
+            var s = parseFloat($(this).data('play'));
+            that.research_play_speed = s;
+          });
+          $('.cw-ps-a-view-mode').click(function(e) {
+            var mode = $(this).data('mode');
+            that.research_mode = mode;
+            CW.async(that, 'research_render', 0);
+          });
+          $('.cw-ps-a-render-mode').click(function(e) {
+            var mode = $(this).data('mode');
+            if (mode === 'playback') that.product.hide(); else that.product.show();
+            CW.async(that, 'research_render', 0);
+          });
+          $('.cw-ps-a-view-flip').click(function(e) {
+            //that.research_multiplier = -that.research_multiplier;
+            /*for (var o in that.lines) {
+              for (var j=0; j<o.length; j++) {
+                if (that.lines[o][j]) that.lines[o][j][1] = 2*that.lines[o][j][1];
+              }
+            }
+            CW.async(that, 'research_render', 0);*/
+          });
+          $('.cw-ps-a-metric').click(function(e) {
+            e.preventDefault();
+            var m = $(this).data('metric');
+            var hidden = that.research_metrics[m].hidden = !that.research_metrics[m].hidden;
+            $(this).find('.glyphicon-ok').toggle();
+            CW.async(that, 'research_render', 1);
+          });
+          $('.cw-ps-a-view-html-final').click(function(e) {
+            bootbox.dialog({
+              title: "Final Text",
+              message: that.html.final,
+              size: 'large',
+              buttons: {
+                success: {
+                  label: "Close",
+                  className: "btn-success"
+                }
+              }
+            });
+          });
+          $('.cw-btn-find').click(function() {
+            var r = window.prompt('Enter Z-number or time in the mm:ss format');
+            if (r) that.research_jump_to(r);
+          });
+          $('.cw-btn-forward').click(function() {
+            var i = that.current_i;
+            var z = that.all_data[i].z;
+            var t = that.all_data[i].t;
+            that.toolbar.find('.cw-btn-play-0').click();
+            while (i < that.all_data.length && (that.all_data[i].z === z || that.all_data[i].t === t)) i++;
+            that.current_t = that.all_data[i].t;
+          });
+          $('.cw-btn-backward').click(function() {
+            var i = that.current_i;
+            var z = that.all_data[i].z;
+            var t = that.all_data[i].t;
+            that.toolbar.find('.cw-btn-play-0').click();
+            while (i > 0 && (that.all_data[i].z === z || that.all_data[i].t === t)) i--;
+            that.current_t = that.all_data[i].t;
+          });
+          $('.cw-ps-a-view-summary').click(function(e) {
+            var html =
+              '<p><b>Process</b><p>'+
+              'Typed characters: '+(that.summary.typed_chars||0)+'<br>'+
+              'Edited (removed) characters: '+(that.summary.removed_chars||0)+'<br>'+
+              'Look-back events: '+(that.summary.lookbacks||0)+'<br>'+
+              'Look-back rate: '+Math.round(1000*that.summary.lookbacks/(that.summary.typed_chars||1))/1000+'<br>'+
+              '<p><b>Product</b><p>'+
+              'Characters: '+(that.summary.chars||0)+'<br>'+
+              'Characters (without spaces): '+(that.summary.nospaces||0)+'<br>'+
+              'Words: '+(that.summary.words||0)+'<br>'+
+              'Paragraphs: '+(that.summary.paragraphs||0)+'<br>';
+            bootbox.dialog({
+              title: "Statistical Summary",
+              message: html,
+              size: 'small',
+              buttons: {
+                success: {
+                  label: "Close",
+                  className: "btn-success"
+                }
+              }
+            });
+          });
         }
 
-        apnd += '</ul></div>';
-        that.ps_toolbar.append(apnd);
-        that.ps_toolbar.append('<div class="btn-group" role="group" style="float:left; margin-left:10px;">'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play--10" data-play="-10"><i class="fa fa-backward"></i></button>'+
-          '<button type="button" class="btn btn-primary cw-btn-play cw-btn-play-0" data-play="0"><i class="fa fa-pause"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-05" data-play="0.5">0.5x <i class="fa fa-play"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-1" data-play="1"><i class="fa fa-play"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-2" data-play="2">2x <i class="fa fa-forward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-3" data-play="3">3x <i class="fa fa-forward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-10" data-play="10">10x <i class="fa fa-forward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-play cw-btn-play-20" data-play="20">20x <i class="fa fa-forward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-backward"><i class="fa fa-step-backward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-forward"><i class="fa fa-step-forward"></i></button>'+
-          '<button type="button" class="btn btn-default cw-btn-find"><i class="fa fa-search"></i></button>'+
-        '</div>');
-        that.ps_toolbar.append('<div class="dropdown" style="float:left; margin-left:10px;">'+
-          '<button type="button" class="btn btn-primary" data-toggle="dropdown">View <span class="caret"></span></button>'+
-          '<ul class="dropdown-menu">'+
-          '<li><a href="#" class="cw-ps-a-view-summary">Summary</li>'+
-          '<li><a href="#" class="cw-ps-a-view-html-final">Final text</li>'+
-          '<li><a href="#" class="cw-ps-a-view-mode" id="cw-menu-process" data-mode="process"><u>P</u>rocess graph</li>'+
-          '<li><a href="#" class="cw-ps-a-view-mode" id="cw-menu-differential" data-mode="differential"><u>D</u>ifferential graph</li>'+
-          '<li><a href="#" class="cw-ps-a-render-mode" id="cw-menu-playback" data-mode="playback">Play<u>b</u>ack</li>'+
-          '<li><a href="#" class="cw-ps-a-render-mode" id="cw-menu-product" data-mode="product">Produc<u>t</u></li>'+
-          //'<li><a href="#" class="cw-ps-a-view-flip">Flip vertically</li>'+
-          //'<li><a href="#" class="cw-ps-a-view-img">Graph as image</li>'+
-          '</ul>'+
-        '</div>');
-
-        that.ps_toolbar.append('<div class="cw-viewer-timer">00:00:00</div><div class="cw-viewer-label"></div>');
-        /*var click_count=0;
-        that.ps_toolbar.find(".cw-viewer-timer").click(function() {
-          click_count++;
-          if (click_count>4) that.ps_toolbar.addClass('cw-tech-show');
-        });*/
-
-        that.ps_toolbar.addClass('cw-tech-show');
-            
-        $('.cw-btn-play').click(function(e) {
-          $('.cw-btn-play').removeClass('btn-primary').addClass('btn-default');
-          $(this).addClass('btn-primary').removeClass('btn-default');
-          var s = parseFloat($(this).data('play'));
-          that.research_play_speed = s;
-        });
-        $('.cw-ps-a-view-mode').click(function(e) {
-          var mode = $(this).data('mode');
-          that.research_mode = mode;
-          CW.async(that, 'research_render', 0);
-        });
-        $('.cw-ps-a-render-mode').click(function(e) {
-          var mode = $(this).data('mode');
-          if (mode === 'playback') that.product.hide(); else that.product.show();
-          CW.async(that, 'research_render', 0);
-        });
-        $('.cw-ps-a-view-flip').click(function(e) {
-          //that.research_multiplier = -that.research_multiplier;
-          /*for (var o in that.lines) {
-            for (var j=0; j<o.length; j++) {
-              if (that.lines[o][j]) that.lines[o][j][1] = 2*that.lines[o][j][1];
-            }
-          }
-          CW.async(that, 'research_render', 0);*/
-        });
-        $('.cw-ps-a-metric').click(function(e) {
-          e.preventDefault();
-          var m = $(this).data('metric');
-          var hidden = that.research_metrics[m].hidden = !that.research_metrics[m].hidden;
-          $(this).find('.glyphicon-ok').toggle();
-          CW.async(that, 'research_render', 1);
-        });
-        $('.cw-ps-a-view-html-final').click(function(e) {
-          bootbox.dialog({
-            title: "Final Text",
-            message: that.html.final,
-            size: 'large',
-            buttons: {
-              success: {
-                label: "Close",
-                className: "btn-success"
-              }
-            }
+        if (that.clip) {
+          that.toolbar.append('<div id="cw-ps-toolbar"></div>');
+          that.ps_toolbar = $('#cw-ps-toolbar');
+          that.ps_toolbar.append('<div class="btn-group" role="group" style="float:left; margin-left:10px;">'+
+            '<button type="button" class="btn btn-default cw-btn-play"><i class="fa fa-play"></i> Play the clip</button>'+
+          '</div>');
+          $('.cw-btn-play').click(function(e) {
+            $(this).html('<i class="fa fa-play"></i> Playing...').addClass('btn-primary').removeClass('btn-default');
+            that.research_jump_to(that.clip.start);
+            that.research_play_speed = 1;
+            CW.async(that, 'research_render', 1);
           });
-        });
-        $('.cw-btn-find').click(function() {
-          var r = window.prompt('Enter Z-number or time in the mm:ss format');
-          if (r) that.research_jump_to(r);
-        });
-        $('.cw-btn-forward').click(function() {
-          var i = that.current_i;
-          var z = that.all_data[i].z;
-          var t = that.all_data[i].t;
-          that.toolbar.find('.cw-btn-play-0').click();
-          while (i < that.all_data.length && (that.all_data[i].z === z || that.all_data[i].t === t)) i++;
-          that.current_t = that.all_data[i].t;
-        });
-        $('.cw-btn-backward').click(function() {
-          var i = that.current_i;
-          var z = that.all_data[i].z;
-          var t = that.all_data[i].t;
-          that.toolbar.find('.cw-btn-play-0').click();
-          while (i > 0 && (that.all_data[i].z === z || that.all_data[i].t === t)) i--;
-          that.current_t = that.all_data[i].t;
-        });
-        $('.cw-ps-a-view-summary').click(function(e) {
-          var html =
-            '<p><b>Process</b><p>'+
-            'Typed characters: '+(that.summary.typed_chars||0)+'<br>'+
-            'Edited (removed) characters: '+(that.summary.removed_chars||0)+'<br>'+
-            'Look-back events: '+(that.summary.lookbacks||0)+'<br>'+
-            'Look-back rate: '+Math.round(1000*that.summary.lookbacks/(that.summary.typed_chars||1))/1000+'<br>'+
-            '<p><b>Product</b><p>'+
-            'Characters: '+(that.summary.chars||0)+'<br>'+
-            'Characters (without spaces): '+(that.summary.nospaces||0)+'<br>'+
-            'Words: '+(that.summary.words||0)+'<br>'+
-            'Paragraphs: '+(that.summary.paragraphs||0)+'<br>';
-          bootbox.dialog({
-            title: "Statistical Summary",
-            message: html,
-            size: 'small',
-            buttons: {
-              success: {
-                label: "Close",
-                className: "btn-success"
-              }
-            }
-          });
-        });
-
+        }
       });
     },
 
@@ -500,7 +517,7 @@
         var data1 = (this.research_metrics[o].mode !== this.research_mode || this.research_metrics[o].hidden ? [] : this.lines[o]);
         arr.push({ data: data1, shadowSize: 0, lines: { lineWidth: 2 } });
       }
-      $.plot("#cw-ps-graph", arr, options);
+      if (!that.clip) $.plot("#cw-ps-graph", arr, options);
 
       var s = parseInt(t*60);
       var h = parseInt(s/3600); s-=h*3600;
@@ -508,6 +525,12 @@
       var t = h+':'+(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
 
       var z = that.all_data[that.current_i].z;
+
+      if (that.clip && z >= that.clip.stop) {
+        $('.cw-btn-play').addClass('btn-default').removeClass('btn-primary').html('<i class="fa fa-refresh"></i> Replay the clip');
+        that.research_play_speed = 0;
+        CW.async(that, 'research_render', 1);
+      }
 
       $('.cw-viewer-timer').html(t + '<span class="cw-tech"> (z='+z+')</span>');
 
