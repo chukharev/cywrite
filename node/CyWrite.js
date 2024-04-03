@@ -101,6 +101,9 @@
     this.spans = new Object();
     this.delays = {};
 
+    this.tab = 0;
+    if (!this.tabs) this.tabs = [ {} ];
+
     this.socket = new CW.Socket(this);
 
     this.socket.upstream('act');
@@ -109,6 +112,8 @@
     this.socket.upstream('img');
 
     var that=this;
+
+    window._cw = this; // todo remove
 
     if (typeof process !== "undefined") {
       $.getScript("CyTrack.js", function(){ that.connect_to_server() } );
@@ -179,6 +184,7 @@
         if (msg.paragraphs) {
           this.init_client();
           this.set_paragraphs(msg.paragraphs);
+          this.set_tabs(msg.tabs || []);
         }
         if (msg.cmd) {
           if (msg.cmd == 'add_span') {
@@ -215,6 +221,9 @@
             this.block_start = msg.block_start;
             this.thaw_cursor();
             this.draw();
+            this.move_cursor('thaw'); //fixme added
+          } else if (msg.cmd == 'set_tab') {
+            this.set_tab(msg.tab); //fixme added
           } else if (msg.cmd == 'resize') {
             if (msg.font_size) this.font_size = parseInt(msg.font_size);
             if (msg.interline) this.interline = parseInt(msg.interline);
@@ -252,7 +261,8 @@
       CW._make(this, 'toolbar', 'btn-toolbar', 'div', 'role="toolbar"');
       this.container.append('<input class="cw-input" readonly="readonly">');
       this.toolbar.append(
-          '<div class="btn-group"><button type="button" class="btn btn-default fa fa-undo"></button><button type="button" class="btn btn-default fa fa-repeat"></button></div>'
+          '<div class="btn-group tab-buttons"></div>'
+        +'<div class="btn-group"><button type="button" class="btn btn-default fa fa-undo"></button><button type="button" class="btn btn-default fa fa-repeat"></button></div>'
         +'<div class="btn-group cw-btn-edit"><button type="button" class="btn btn-default fa fa-cut" title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-copy"  title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-paste"  title="Copy & paste only works within the editor."></button></div>'
         +'<div class="btn-group cw-btn-style"><button type="button" class="btn btn-default fa fa-bold"></button><button type="button" class="btn btn-default fa fa-italic"></button><button type="button" class="btn btn-default fa fa-underline"></button></div>'
         +'<div class="btn-group cw-btn-align"><button type="button" class="btn btn-default fa fa-align-left"></button><button type="button" class="btn btn-default fa fa-align-center"></button><button type="button" class="btn btn-default fa fa-align-right"></button></div>'
@@ -445,8 +455,8 @@
         if (!actions.move && this.block_start) delete this.block_start;
         this.cur_col = xy.cur_col;
         this.cur_row = xy.cur_row;
-        if (this.cur_row > this.paragraphs[this.paragraphs.length-1].nrd1 - this.top_row) {
-          this.cur_row = this.paragraphs[this.paragraphs.length-1].nrd1 - this.top_row;
+        if (this.cur_row > this.tab_last_row() - this.top_row) {
+          this.cur_row = this.tab_last_row() - this.top_row;
         }
         this.move_cursor('m');
       }
@@ -457,11 +467,11 @@
 
       if (actions.move) { 
         var text_under_cursor = false;
-        var nrd = this.top_row + xy.cur_row;
-        var npd = this.nrd_to_npd(nrd);
+        var nrt = this.top_row + xy.cur_row;
+        var npd = this.nrt_to_npd(nrt);
         if (npd >= 0) {
           var p = this.paragraphs[npd];
-          var nrp = nrd - p.nrd0;
+          var nrp = nrt - p.nrt0;
           var left = p.row_padding(nrp);
           var right = left+p.rows[nrp].text.length;
           if (xy.cur_col >= left && xy.cur_col <= right) text_under_cursor = true;
@@ -527,33 +537,34 @@
       return this;
     },
 
-    /*apply_snapshot: function(s) {
-      this.set_props(s.props);
-      this.set_paragraphs(s.paragraphs);
-      return this;
-    },*/
-
     snapshot: function(p) {
-      var r = new Object;
-      if (!p) p = new Object;
-      var props = [
+      let r = {};
+      if (!p) p = {};
+      const props = [
         'rows', 'cols', 'viewport_width', 'viewport_height', 'char_width', 'char_height', 'interline', 'font_size', 'font_family', 
         'cur_row', 'cur_col', 'top_row'
       ];
       if (!p.no_props) {
         r.props = new Object;
-        for (var i=0; i<props.length; i++) r.props[props[i]] = this[props[i]];
+        for (let prop of props) r.props[prop] = this[prop];
       }
-      r.paragraphs = new Array();
+      r.paragraphs = [];
       if (this.paragraphs) {
-        for (var i=0; i<this.paragraphs.length; i++) r.paragraphs[i] = this.paragraphs[i].snapshot(p);
+        let cur_tab = -1;
+        for (let para of this.paragraphs) {
+          if (para.tab !== cur_tab) {
+            r.paragraphs.push({ start_tab: this.tabs[para.tab].title || '' });
+            cur_tab = para.tab;
+          }
+          r.paragraphs.push(para.snapshot(p));
+        }
       }
       return r;
     },
 
     cur_paragraph: function() {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
       return this.paragraphs[npd];
     },
 
@@ -572,8 +583,8 @@
     },
 
     keydown_handler: function(event) {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
       var offset = this.paragraphs[npd].cursor_to_offset();
 
       if (this.is_readonly() || this.paragraphs[npd].ro) this.suppress_keypress = true;
@@ -698,8 +709,8 @@
 
     add_chars: function(chars) {
       this.remove_block();
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
       var offset = this.paragraphs[npd].cursor_to_offset();
       var styles = new Array;
       if (this.container.find('.fa-bold.active').length) styles.push('bold');
@@ -724,7 +735,7 @@
     },
 
     join_paragraphs: function(npd) {
-      if (this.paragraphs[npd].ro || this.paragraphs[npd+1].ro) return this;
+      if (this.paragraphs[npd].ro || this.paragraphs[npd+1].ro || this.paragraphs[npd].tab !== this.paragraphs[npd+1].tab) return this;
       var old_length = this.paragraphs[npd].text.length;
       this.paragraphs[npd].text =  this.paragraphs[npd].text.replace(/\$$/, '') + this.paragraphs[npd+1].text;
 
@@ -762,7 +773,7 @@
       if (this.paragraphs[npd].ro) return this;
       var old_text = this.paragraphs[npd].text;
       this.paragraphs[npd].text = this.paragraphs[npd].text.substr(0, offset)+'$';
-      this.paragraphs.splice(npd+1, 0, new CW.Paragraph(old_text.substr(offset, old_text.length-offset-1), npd+1, this));
+      this.paragraphs.splice(npd+1, 0, new CW.Paragraph({ text: old_text.substr(offset, old_text.length-offset-1), tab: this.paragraphs[npd].tab }, npd+1, this));
       var p1 = this.paragraphs[npd];
       var p2 = this.paragraphs[npd+1];
       p2.align=p1.align;
@@ -819,9 +830,9 @@
       return this;
     },
 
-    nrd_to_npd: function(nrd) {
+    nrt_to_npd: function(nrt) {
       for (var i=0; i<this.paragraphs.length; i++) {
-        if (nrd >= this.paragraphs[i].nrd0 && nrd <= this.paragraphs[i].nrd1) {
+        if (nrt >= this.paragraphs[i].nrt0 && nrt <= this.paragraphs[i].nrt1) {
           return i;
         }
       }
@@ -854,13 +865,12 @@
       else if (where == 'dh')
         this.top_row = this.cur_row = this.cur_col = 0;
       else if (where == 'de' || where == 'all') {
-        var p = this.paragraphs[this.paragraphs.length-1];
-        this.top_row = p.nrd1 - this.rows + 1;
+        this.top_row = this.tab_last_row() - this.rows + 1;
         this.cur_row = this.rows-1;
         this.cur_col = this.cols-1;
       }
       if (where == 'all') {
-        this.block_start = { npd: 0, offset: 0 };
+        this.block_start = { npd: this.tab_npd0(), offset: 0 };
       }
 
 
@@ -868,7 +878,7 @@
       if (dy) this.cur_row+=dy;
       if (dx) this.cur_col+=dx;
       if (this.cur_col >= this.cols || dx>0 && this.cur_col >= this.cur_row_length()+this.cur_row_padding()) {
-        if (this.cur_row + this.top_row == this.paragraphs[this.paragraphs.length-1].nrd1) {
+        if (this.cur_row + this.top_row == this.tab_last_row()) {
           this.cur_col -= dx;
         } else {
           this.cur_col = 0;
@@ -888,8 +898,8 @@
         if (this.top_row<0) this.top_row=0;
         this.cur_row=0;
       }
-      if (this.cur_row+this.top_row > this.paragraphs[this.paragraphs.length-1].nrd1) {
-        this.cur_row = this.paragraphs[this.paragraphs.length-1].nrd1 - this.top_row;
+      if (this.cur_row+this.top_row > this.tab_last_row()) {
+        this.cur_row = this.tab_last_row() - this.top_row;
       }
       if (this.cur_row >= this.rows && where != 's') {
         this.top_row += this.cur_row - this.rows + 1;
@@ -899,8 +909,8 @@
         this.cur_row-=this.top_row;
         this.top_row=0;
       }
-      if (this.cur_row > this.paragraphs[this.paragraphs.length-1].nrd1 - this.top_row) {
-        this.cur_row = this.paragraphs[this.paragraphs.length-1].nrd1 - this.top_row ;
+      if (this.cur_row > this.tab_last_row() - this.top_row) {
+        this.cur_row = this.tab_last_row() - this.top_row ;
       }
         
       this.draw_cursor();
@@ -923,8 +933,9 @@
       return this;
     },
 
-    resize: function() {
-      if (this.paragraphs) this.freeze_cursor();
+    // call with (true) from set_tab
+    resize: function(is_cursor_already_frozen) {
+      if (this.paragraphs && !is_cursor_already_frozen) this.freeze_cursor();
 
       $('#cw-'+this.id+'-cursor').remove();
       CW.measure(this);
@@ -992,16 +1003,16 @@
     },
 
     cur_row_length: function() {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
-      var row = this.paragraphs[npd].rows[nrd - this.paragraphs[npd].nrd0];
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
+      var row = this.paragraphs[npd].rows[nrt - this.paragraphs[npd].nrt0];
       return row.text.length;
     },
 
     cur_row_padding: function() {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
-      return npd<0 ? 0 : this.paragraphs[npd].row_padding(nrd - this.paragraphs[npd].nrd0);
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
+      return npd<0 ? 0 : this.paragraphs[npd].row_padding(nrt - this.paragraphs[npd].nrt0);
     },
 
     cur_col_shown: function() {
@@ -1017,25 +1028,132 @@
     set_paragraphs: function(plist) {
       var display=this;
       delete this.stats;
-      this.paragraphs = new Array;
-      for (var i = 0; i < plist.length; i++) {
-        //if (plist[i].csns) delete plist[i].csns;
-        if (plist[i].z0) delete plist[i].z0;
-        if (plist[i].z1) delete plist[i].z1;
-        this.paragraphs[i] = new CW.Paragraph(plist[i], i, this);
-        this.send_event('paragraph_id', {npd: i});
+      this.paragraphs = [];
+      if (!this.tabs) this.tabs = [ {} ];
+      
+      let npd=0;
+      let tab_id=0;
+      let cur_tab_paras = 0;
+      for (p of plist) {
+        if (typeof p === 'object' && 'start_tab' in p) {
+          if (cur_tab_paras) {
+            tab_id++;
+            cur_tab_paras = 0;
+            this.tabs.push({});
+          }
+          if (p.start_tab) this.tabs[tab_id].title = p.start_tab;
+        } else {
+          if (typeof p === 'string') {
+            p = { text: p };
+          }
+          delete p.z0;
+          delete p.z1;
+          p.tab = tab_id;
+          this.paragraphs[npd] = new CW.Paragraph(p, npd, this);
+          cur_tab_paras++;
+          this.send_event('paragraph_id', {npd: npd});
+          npd++;
+        }
       }
+      //console.log(this.paragraphs[0].text);
       this.top_row=this.cur_row=this.cur_col=0;
-      this.old_top_row=this.old_cur_row=this.old_cur_col=-1;
+      this.old_top_row=this.old_cur_row=this.old_cur_col=-1; // this will force display.draw() on move_cursor()
       this.render().move_cursor();
       return this;
     },
 
+    set_tabs: function(tabs) {
+      var that=this;
+      if (tabs) for (let i = 0; i < tabs.length; i++) {
+        if (!this.tabs[i]) this.tabs[i] = {}; // this should never happen
+        CW.extend(this.tabs[i], tabs[i]);
+      }
+
+      if (this.toolbar && this.tabs.length > 1) {
+        for (let i = 0; i < this.tabs.length; i++) {
+          let title = this.tabs[i].title || ('Tab '+i);
+          this.toolbar.find('.tab-buttons').append('<button type="button" class="btn btn-default" data-tab="'+i+'">'+title+'</button>');
+        }
+        this.toolbar.find('.tab-buttons button').click(function() {
+          let id = parseInt($(this).data('tab'));
+          that.set_tab(id);
+        });
+      }
+
+
+      this.tab = -1;
+      this.set_tab(0);
+
+      return this;
+    },
+
+    // get the number in document of the first paragraph on the current tab
+    tab_npd0: function() {
+      for (var i=0; i<this.paragraphs.length; i++)
+        if (this.paragraphs[i].tab === this.tab) return i;
+    },
+    
+    // get the number in document of the last paragraph on the current tab
+    tab_npd1: function() {
+      for (i = this.paragraphs.length-1; i >= 0; i--)
+        if (this.paragraphs[i].tab === this.tab) return i;
+    },
+
+    // get the index (i.e. nrt) of the last row on the current tab
+    tab_last_row: function() {
+      return this.paragraphs[this.tab_npd1()].nrt1;
+    },
+
+    set_tab: function(new_tab) {
+      if (this.toolbar) {
+        this.toolbar.find('.tab-buttons .btn').removeClass('btn-primary').addClass('btn-default');
+        this.toolbar.find(".tab-buttons .btn[data-tab='"+new_tab+"']").removeClass('btn-default').addClass('btn-primary');
+      }
+
+      if (this.tab === new_tab) return;
+
+      this.send_event('set_tab', {tab: new_tab});
+      delete this.block_start; // remove block highlighting when switching tabs
+      // save the old tab
+      if (this.tab >= 0 && this.tabs[this.tab]) {
+        let t = this.tabs[this.tab];
+        // save geometry
+        t.font_size = this.font_size;
+        t.interline = this.interline;
+        // save cursor
+        t.cur = this.cursor_to_frozen_tab(); // we need npt instead of npd
+        t.top_row = this.top_row; // this is relative to the tab, not the document
+      }
+
+      this.tab = new_tab;
+
+      // restore the new tab
+      if (this.tabs[this.tab]) {
+        let t = this.tabs[this.tab];
+        // restore geometry
+        if (t.font_size) this.font_size = parseInt(t.font_size);
+        if (t.interline) this.interline = parseInt(t.interline);
+        if (t.cur) {
+          this.frozen_cursor = { npd: this.tab_npd0() + t.cur.npt, offset: t.cur.offset };
+        } else {
+          this.frozen_cursor = { npd: this.tab_npd0(), offset: 0 };
+        }
+        if (t.top_row !== undefined) this.top_row = t.top_row;
+
+        this.resize(true); // cursor is already frozen, don't freeze before resizing
+      }
+    },
+
     render: function() {
-      var nrd=0;
+      var nrt=0;
       for (var i=0; i<this.paragraphs.length; i++) {
-        this.paragraphs[i].render(nrd);
-        nrd = this.paragraphs[i].nrd1+1;
+        if (this.paragraphs[i].tab === this.tab) {
+          this.paragraphs[i].unhide();
+          this.paragraphs[i].render(nrt);
+          nrt = this.paragraphs[i].nrt1+1;
+        } else {
+          this.paragraphs[i].hide();
+        }
       };
       return this;
     },
@@ -1064,7 +1182,7 @@
 
     html_rows: function() {
       var out = new Object;
-      for (var i=0; i<this.paragraphs.length; i++) CW.extend(out, this.paragraphs[i].html_rows());
+      for (var i=0; i<this.paragraphs.length; i++) if (!this.paragraphs[i].hidden) CW.extend(out, this.paragraphs[i].html_rows());
       for (var i=0; i<this.rows; i++) if (!(i in out)) out[i] = '';
       return out;
     },
@@ -1076,11 +1194,11 @@
 
       var cur0 = block[0], cur1 = block[1];
       for (var i=0; i<this.rows; i++) {
-        var nrd = i+this.top_row;
-        var npd = this.nrd_to_npd(nrd);
+        var nrt = i+this.top_row;
+        var npd = this.nrt_to_npd(nrt);
         if (npd < 0 || npd < cur0.npd || npd > cur1.npd) continue;
         var p = this.paragraphs[npd];
-        var nrp = nrd - p.nrd0;
+        var nrp = nrt - p.nrt0;
         var r = p.rows[nrp];
         var left = p.row_padding(nrp);
         var right = left+p.rows[nrp].text.length;
@@ -1225,11 +1343,11 @@
       var cur0 = block[0], cur1 = block[1];
 
       for (var i=0; i<this.rows; i++) {
-        var nrd = i+this.top_row;
-        var npd = this.nrd_to_npd(nrd);
+        var nrt = i+this.top_row;
+        var npd = this.nrt_to_npd(nrt);
         if (npd < 0 || npd < cur0.npd || npd > cur1.npd) continue;
         var p = this.paragraphs[npd];
-        var nrp = nrd - p.nrd0;
+        var nrp = nrt - p.nrt0;
         var r = p.rows[nrp];
         var left = p.row_padding(nrp);
         var right = left+p.rows[nrp].text.length;
@@ -1294,7 +1412,7 @@
 
     draw_scrollbar: function() {
       if (this.scroll_auto_supress || !this.scrollbar) return this;
-      var total_rows = this.paragraphs[this.paragraphs.length-1].nrd1+2;
+      var total_rows = this.tab_last_row()+2;
       var row_height = this.char_height+this.interline;
       this.scrollbar_inner.css('height', (total_rows*row_height)+'px');
       var scroll_top = this.top_row*row_height;
@@ -1318,14 +1436,23 @@
       return this;
     },
 
+    // -> { npd, offset }
     cursor_to_frozen: function() {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
-      var frozen_cursor = new Object();
+      let nrt = this.top_row + this.cur_row;
+      let npd = this.nrt_to_npd(nrt);
+      let frozen_cursor = {};
       frozen_cursor.npd = npd;
       if (!this.paragraphs[npd]) return {npd:0, offset:0};
       frozen_cursor.offset = this.paragraphs[npd].cursor_to_offset();
       return frozen_cursor;
+    },
+    
+    // -> { npt, offset }
+    cursor_to_frozen_tab: function() {
+      let frozen = this.cursor_to_frozen();
+      frozen.npt = frozen.npd - this.tab_npd0();
+      delete frozen.npd;
+      return frozen;
     },
 
   // e.g. before scrolling
@@ -1383,7 +1510,7 @@
 
     scroll: function() {
       this.freeze_cursor();
-      var max_row = this.paragraphs[this.paragraphs.length-1].nrd1;
+      var max_row = this.tab_last_row();
       var row_height = this.char_height+this.interline;
       var top_row = Math.ceil(this.scrollbar.scrollTop()/row_height);
       if (top_row < 0) top_row = 0;
@@ -1415,8 +1542,8 @@
     },
 
     draw_rpane: function() {
-      var nrd = this.top_row + this.cur_row;
-      var npd = this.nrd_to_npd(nrd);
+      var nrt = this.top_row + this.cur_row;
+      var npd = this.nrt_to_npd(nrt);
       var p = this.paragraphs[npd];
       var offset = p.cursor_to_offset();
       var spans = p.spans_at(offset);
@@ -1667,23 +1794,19 @@
   /*** PARAGRAPH ***************************************************************/
 
   // npd - number of paragraph in document
+  // nrt - number of row on tab
   CW.Paragraph = function(text, npd, display) {
-    if (typeof text === 'object') {
-      this.text = text.text;
-      this.align = text.align || 'left';
-      this.styles = text.styles ? CW.extend({}, text.styles) : {};
-      this.spans = text.spans ? CW.extend({}, text.spans) : {};
-      this.ro = text.ro;
-    } else {
-      this.text = text;
-      this.align = 'left';
-      this.styles = {};
-      this.spans = {};
-    }
-    this.text += '$';
+    this.text = text.text + '$';
+    this.align = text.align || 'left';
+    this.styles = text.styles ? CW.extend({}, text.styles) : {};
+    this.spans = text.spans ? CW.extend({}, text.spans) : {};
+    this.ro = text.ro;
+    
+    this.tab = text.tab || 0;
+
     this.npd = npd;
-    this.z0 = (typeof text === 'object' && text.z0) ? text.z0 : display.z();
-    this.z1 = (typeof text === 'object' && text.z1) ? text.z1 : display.z();
+    this.z0 = (text.z0) ? text.z0 : display.z();
+    this.z1 = (text.z1) ? text.z1 : display.z();
     this.edit_history = new Array();
     this.display = display;
     this.update_stats();
@@ -1701,6 +1824,7 @@
       r.npd = this.npd;
       r.align = this.align;
       r.styles = CW.extend({}, this.styles);
+      r.tab = this.tab || 0;
       if (this.ro) r.ro = true;
       if (!p.no_z0) {
         r.z0 = this.z0;
@@ -1723,10 +1847,23 @@
       return r;
     },
 
-  // nrd0 - number of first row of paragraph in document
-  // nrd1 - number of last row of paragraph in document
-    render: function(nrd0) {
-      if (typeof nrd0 === 'undefined') nrd0 = this.nrd0;
+    hide: function() {
+      this.hidden = true;
+      delete this.nrt0;
+      delete this.nrt1;
+      delete this.rows;
+    },
+
+    unhide: function() {
+      this.hidden = false;
+    },
+
+
+  // nrt0 - number of first row of paragraph on the tab
+  // nrt1 - number of last row of paragraph on the tab
+    render: function(nrt0) {
+      if (this.hidden) return this; // do not render hidden paras
+      if (typeof nrt0 === 'undefined') nrt0 = this.nrt0;
       var display = this.display;
       var regex = '.{1,' +(display.cols-1)+ '}(\\s|\\$$)' + '|.{' +(display.cols)+ '}|.+$';
       var rows_text = this.text.match( RegExp(regex, 'g') );
@@ -1738,8 +1875,8 @@
         offset += rows_text[i].length;
         this.rows[i].op1 = offset-1;
       }
-      this.nrd0 = nrd0;
-      this.nrd1 = nrd0 + rows_text.length - 1;
+      this.nrt0 = nrt0;
+      this.nrt1 = nrt0 + rows_text.length - 1;
       return this;
     },
 
@@ -1774,9 +1911,10 @@
 
     draw: function() {
       var display = this.display;
+      if (this.hidden) return this;
 
       for (var i=0; i<this.rows.length; i++) {
-        var row_id = this.nrd0+i-display.top_row;
+        var row_id = this.nrt0+i-display.top_row;
         if (row_id>=0 && row_id<display.rows) {
           $('#cw-'+display.id+'-row-'+row_id).remove();
           var class_name = "cw-row";
@@ -1796,7 +1934,7 @@
       var out = new Object;
 
       for (var i=0; i<this.rows.length; i++) {
-        var row_id = this.nrd0+i-display.top_row;
+        var row_id = this.nrt0+i-display.top_row;
         if (row_id>=0 && row_id<display.rows) out[row_id] = this.html_row(i);
       }
       return out;
@@ -1830,9 +1968,16 @@
       return out;
     },
 
+    // update nrts (called from display.update_paragraphs)
     update: function() {
-      this.nrd0 = this.npd > 0 ? this.display.paragraphs[ this.npd-1 ].nrd1 + 1 : 0;
-      this.nrd1 = this.nrd0 + this.rows.length - 1;
+      if (this.hidden) {
+        delete this.nrt0;
+        delete this.nrt1;
+        return;
+      }
+      let is_prev_para_unhidden = (this.npd > 0 && !this.display.paragraphs[this.npd-1].hidden);
+      this.nrt0 = is_prev_para_unhidden ? this.display.paragraphs[ this.npd-1 ].nrt1 + 1 : 0;
+      this.nrt1 = this.nrt0 + this.rows.length - 1;
     },
 
     optimize_styles: function() {
@@ -1900,9 +2045,9 @@
         this.spans[id].adjust(offset, len, repl.length);
       }
       
-      var old_nrd1 = this.nrd1;
+      var old_nrt1 = this.nrt1;
       this.render();
-      if (this.nrd1 != old_nrd1) this.display.update_paragraphs(this.npd+1);
+      if (this.nrt1 != old_nrt1) this.display.update_paragraphs(this.npd+1);
       
       this.touch();
       if (this.edit_history) this.edit_history.push([ this.display.z(), offset, len, repl.length ]);
@@ -1951,7 +2096,7 @@
     cursor_to_offset: function() {
       var display = this.display;
       var offset;
-      var nrp = display.cur_row + display.top_row - this.nrd0;
+      var nrp = display.cur_row + display.top_row - this.nrt0;
       if (nrp<0) offset=0;
       else if (nrp>=this.rows.length) offset=this.text.length;
       else offset = this.rows[nrp].op0 + display.cur_col_shown() - this.row_padding(nrp);
@@ -1970,10 +2115,11 @@
     },
 
     offset_to_row_col: function(offset) {
+      if (this.hidden) return false;
       var display = this.display;
       for (var i=0; i<this.rows.length; i++) {
         if (offset>=this.rows[i].op0 && offset<=this.rows[i].op1) {
-          return { row: i + this.nrd0 - display.top_row, col: offset - this.rows[i].op0 + this.row_padding(i) };
+          return { row: i + this.nrt0 - display.top_row, col: offset - this.rows[i].op0 + this.row_padding(i) };
         }
       }
       return false;

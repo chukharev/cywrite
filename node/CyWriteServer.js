@@ -61,6 +61,8 @@ CW.Clone = function(p) {
     role: 'live'
   }, p);
 
+  this.tab = 0;
+
   if (!this.config) this.config = {};
   if (!this.config.modules) this.config.modules = { }; //spellcheck: 1, analyze: 1 };
   for (var o in this.config.modules) {
@@ -122,20 +124,21 @@ CW.extend(CW.Clone.prototype, {
     this.cur_z = {};
     this.cleanup();
     this.db3 = new sqlite3.Database(CW.config.dir_archive+'/'+this.original_token);
-    this.db3.all('select * from props where name=?;', ['adjustments'], function(err, rows) {
+    this.db3_all('select * from props where name=?;', ['adjustments'], function(err, rows) {
       if (rows && rows[0] && !that.adjustments) {
         const json = JSON.parse(rows[0].value);
         that.adjustments = json;
       }
-      that.db3.all('select * from document where kind=?;', ['initial'], function(err, rows) {
+      that.db3_all('select * from document where kind=?;', ['initial'], function(err, rows) {
         if (!rows || !rows.length) return that.shutdown();
         var doc = JSON.parse(rows[0].json);
         that.set_paragraphs(doc.paragraphs);
+        that.set_tabs(doc.tabs);
         that.csn = doc.csn;
-        that.db3.all('select * from act order by z desc limit 1;', function(err, rows) {
+        that.db3_all('select * from act order by z desc limit 1;', function(err, rows) {
           if (!rows.length) return that.shutdown();
           that.broadcast_data.scope = {z9:rows[0].z, t9:rows[0].t};
-          that.db3.all('select * from act order by z asc limit 1;', function(err, rows) {
+          that.db3_all('select * from act order by z asc limit 1;', function(err, rows) {
             that.broadcast_data.scope.z0 = rows[0].z;
             that.broadcast_data.scope.t0 = rows[0].t;
             CW.async(that, 'proceed_playback', 0);
@@ -155,7 +158,7 @@ CW.extend(CW.Clone.prototype, {
     if (!this.cur_z.eye) this.cur_z.eye = 0;
     if (!this.cur_z.key) this.cur_z.key = 0;
     var dir = this.playback_direction;
-    this.db3.all('select * from act where z > ? order by z asc limit 3;', [this.cur_z.act], function(err, rows) { //  : 'select * from act where z <= ? order by z desc limit 3;
+    this.db3_all('select * from act where z > ? order by z asc limit 3;', [this.cur_z.act], function(err, rows) { //  : 'select * from act where z <= ? order by z desc limit 3;
       let next = rows[0];
       if (!next) {
         that.playback_direction='pause';
@@ -169,7 +172,7 @@ CW.extend(CW.Clone.prototype, {
 
       const get_next_eye = function(cb) {
         if (dir === 'fwd' && !that.ignore_eye) {
-          that.db3.all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
+          that.db3_all("select * from eye where z > ? and (k='s' and t >= ? or k<>'s') order by z asc limit 1;", [that.cur_z.eye, that.cur_t + (that.throttle_eye || 0)], function(err, rows_eye) {
             next_eye = rows_eye ? rows_eye[0] : null;
             cb();
           });
@@ -178,7 +181,7 @@ CW.extend(CW.Clone.prototype, {
       
       const get_next_key = function(cb) {
         if (dir === 'fwd' && !that.ignore_key) {
-          that.db3.all("select * from key where z > ? order by z asc limit 1;", [that.cur_z.key], function(err, rows_key) {
+          that.db3_all("select * from key where z > ? order by z asc limit 1;", [that.cur_z.key], function(err, rows_key) {
             next_key = rows_key ? rows_key[0] : null;
             cb();
           });
@@ -392,6 +395,24 @@ CW.extend(CW.Clone.prototype, {
     if (callback) callback();
   },
 
+  db3_all: function(sql, args1, callback) {
+    var that = this;
+    if (!callback) {
+      callback = args1;
+      args1 = [];
+    }
+    try {
+      if (this.db3 && this.deleted !== 2) {
+        var db3 = this.db3;
+        this.db3.all(sql, args1 || [], callback);
+        return;
+      }
+    } catch (e) {
+      // ignore errors
+    }
+    return("db3_all() failed", null);
+  },
+
   apply_eye_adjustments: function(eye_data) {
     if (this.adjustments && this.adjustments.eye_row_shift) {
       eye_data.y -= this.adjustments.eye_row_shift * (this.char_height + this.interline);
@@ -519,11 +540,14 @@ CW.extend(CW.Clone.prototype, {
 
     console.log('CONFIG:', that.config);
     that.set_paragraphs(that.config.template ? that.config.template : old_document ? old_document.paragraphs : ['']);
+
+    that.set_tabs(that.config.tabs ? that.config.tabs : (old_document && old_document.tabs) ? old_document.tabs : []);
     if (!that.config.template && old_document && old_document.csn) that.csn = old_document.csn+1;
 
     let msg = new Object();
-    msg.paragraphs = that.snapshot({no_props:1, no_csns:1}).paragraphs;
-    //msg.set_doc_id = that.doc_id;
+    let snapshot = that.snapshot({no_props:1, no_csns:1, no_cursor:1});
+    msg.paragraphs = snapshot.paragraphs;
+    msg.tabs = that.tabs;
     msg.set_delays = that.delays;
     let opts = CW.extend({}, that.config); // doc.config,
     that.config = opts;
@@ -596,6 +620,8 @@ CW.extend(CW.Clone.prototype, {
       undo = { offset: this.paragraphs[d.npd].text.length-1, align: this.paragraphs[d.npd+1].align, z0: this.paragraphs[d.npd+1].z0, z1: this.paragraphs[d.npd+1].z1 };
       this.join_paragraphs(d.npd);
       chkpnt=1;
+    } else if (d.k == 'set_tab') {
+      this.set_tab(d.tab);
     } else if (d.k == 'split_paragraphs') {
       this.split_paragraphs(d.npd, d.offset);
       chkpnt=1;
@@ -856,7 +882,7 @@ CW.extend(CW.Clone.prototype, {
     this.undoing = true;
     this.paragraphs_to_remove = new Array();
     this.log('debug', 'performing undo from '+from+' to '+to);
-    this.db3.all('select * from act where z between ? and ? order by z desc;', [from, to], function(err, rows) {
+    this.db3_all('select * from act where z between ? and ? order by z desc;', [from, to], function(err, rows) {
       for (var i=0; i<rows.length; i++) {
         var row = rows[i];
         if (row.json) row.json = JSON.parse(row.json); else row.json = {};
@@ -878,9 +904,11 @@ CW.extend(CW.Clone.prototype, {
       that.undoing = false;
       that.send_cmd('undo', { update: out, remove: to_remove });
 
-      that.db3.all("select * from act where k='cursor' and z <= ? order by z desc limit 1;", [from], function(err, rows) {
+      that.db3_all("select * from act where k='cursor' and z <= ? order by z desc limit 1;", [from], function(err, rows) {
         if (rows.length) {
           var json = JSON.parse(rows[0].json);
+          let tab_id = that.paragraphs[json.cur.npd].tab;
+          if (that.tab !== tab_id) that.send_cmd('set_tab', { tab: tab_id });
           that.send_cmd('cursor', { cur: json.cur, block_start: json.block_start });
         }
       });
@@ -889,12 +917,13 @@ CW.extend(CW.Clone.prototype, {
     });
   },
 
+  // todo merge with perfrom_undo to avoid spaghetti code
   perform_redo: function(from, to) {
     var that=this;
     this.undoing = true;
     this.paragraphs_to_remove = new Array();
     this.log('debug', 'performing redo from '+from+' to '+to);
-    this.db3.all('select * from act where z between ? and ? order by z asc;', [from, to], function(err, rows) {
+    this.db3_all('select * from act where z between ? and ? order by z asc;', [from, to], function(err, rows) {
       for (var i=0; i<rows.length; i++) {
         var row = rows[i];
         if (row.json) row.json = JSON.parse(row.json); else row.json = {};
@@ -916,9 +945,11 @@ CW.extend(CW.Clone.prototype, {
       that.undoing = false;
       that.send_cmd('redo', { update: out, remove: to_remove });
 
-      that.db3.all("select * from act where k='cursor' and z <= ? order by z desc limit 1;", [to], function(err, rows) {
+      that.db3_all("select * from act where k='cursor' and z <= ? order by z desc limit 1;", [to], function(err, rows) {
         if (rows.length) {
           var json = JSON.parse(rows[0].json);
+          let tab_id = that.paragraphs[json.cur.npd].tab;
+          if (that.tab !== tab_id) that.send_cmd('set_tab', { tab: tab_id });
           that.send_cmd('cursor', { cur: json.cur, block_start: json.block_start });
         }
       });
@@ -1302,10 +1333,12 @@ CW.extend(CW.Clone.prototype, {
           eye.is_text_fixated = false;
         }
         this.last_eye = eye;
+        this.trigger_hooks('incremental_eye_fix', this.last_eye);
       }
 
       if (msg.k === 'end' && this.last_eye) {
         this.last_eye.duration = msg.dur;
+        this.trigger_hooks('incremental_eye_end', this.last_eye);
         this.last_eye = null;
       }
     }
@@ -1328,8 +1361,9 @@ CW.extend(CW.Clone.prototype, {
     const event_type =
       msg.k === 'edit' && msg.repl.length === 1 && !msg.len ? 'production' :
       msg.k === 'edit' && msg.len > 0 && !msg.repl.len      ? 'deletion' :
-      msg.k === 'edit' ? 'block-operation'
-      : '';
+      msg.k === 'edit' ? 'block-operation' :
+      msg.k === 'start' ? 'start' :
+      '';
 
 
     if (event_type || msg.k === 'cursor' || msg.k === 'resize') this.sustained_eye = [];
@@ -1341,6 +1375,7 @@ CW.extend(CW.Clone.prototype, {
       this.build_chars_map();
 
       iv0 = this.interval || {};
+      if (this.is_started) iv0.is_started = true;
       iv0.next_event_type = event_type;
       iv0.next_event_is_paragraph_operation = is_paragraph_operation;
 
@@ -1354,6 +1389,11 @@ CW.extend(CW.Clone.prototype, {
 
       // create a new interval
       this.interval = { id: (iv0.id || 0) + 1 };
+    }
+
+    // only after iv0.is_started is set
+    if (event_type === 'start') {
+      this.is_started = true;
     }
 
     if (msg.k === 'edit' && !is_paragraph_operation) {
@@ -1457,7 +1497,7 @@ CW.extend(CW.Clone.prototype, {
       iv0.cursor_moved = !!iv0.cursor_moved;
       iv0.cursor_returned = !!iv0.cursor_returned;
 
-//      console.log('*************************************************', this.cur_segment);
+      // console.log('*************************************************', this.cur_segment);
       this.trigger_hooks('interval_end', iv0);
     }
   }

@@ -12,7 +12,8 @@ function process_token(token, cb) {
   const r = new CW.Clone({
     role: 'research',
     original_token: token,
-    log_level_console: 'error'
+    log_level_console: 'error',
+    throttle_eye: 10000, // to effectively remove eye samples (only consider 1 sample per 10 seconds)
   });
 
   r.register_hook('interval_end', (i) => {
