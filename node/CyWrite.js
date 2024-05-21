@@ -839,6 +839,19 @@
       return -1;
     },
 
+    npd_to_npt: function(npd) {
+      let npt = -1;
+      let tab = -1;
+      for (var i=0; i<=npd; i++) {
+        if (this.paragraphs[i].tab !== tab) {
+          npt = -1;
+          tab = this.paragraphs[i].tab;
+        }
+        npt++;
+      }
+      return npt;
+    },
+
   // u - up, d - down, l - left, r - right, h - home, e - end, pu - page up, pd - page down
   // dh - document home, de - document end, s - scroll, m - mouse click
   // thaw - from offset_to_cursor

@@ -1313,6 +1313,10 @@ CW.extend(CW.Clone.prototype, {
           var frozen_eye = this.cursor_to_frozen();
           this.cur_row=cr; this.cur_col=cc;
 
+          eye.npd = frozen_eye.npd;
+          eye.npt = this.npd_to_npt(eye.npd);
+          eye.tab = this.tab;
+
           eye.fixation_offset = this.frozen_to_global(frozen_eye);
           eye.is_ro_fixated = !!this.paragraphs[frozen_eye.npd].ro;
           eye.inscription_offset = this.interval.global_offset;
