@@ -1072,6 +1072,7 @@ CW.extend(CW.Clone.prototype, {
     if (this.on_broadcast) this.on_broadcast.call(this);
     this.trigger_hooks('broadcast');
     if (!this.role !== 'live' && this.playback_direction === 'pause') {
+      this.do_incremental_process_analysis({ k: 'finish' }, 'act');
       this.trigger_hooks('playback_ended');
     }
   },
@@ -1363,6 +1364,7 @@ CW.extend(CW.Clone.prototype, {
       msg.k === 'edit' && msg.len > 0 && !msg.repl.len      ? 'deletion' :
       msg.k === 'edit' ? 'block-operation' :
       msg.k === 'start' ? 'start' :
+      msg.k === 'finish' ? 'finish' :
       '';
 
 
@@ -1385,7 +1387,7 @@ CW.extend(CW.Clone.prototype, {
           iv0.word_started = true;
         }*/
       }
-      iv0.duration = msg.t - iv0.t_start;
+      if (msg.t) iv0.duration = msg.t - iv0.t_start;
 
       // create a new interval
       this.interval = { id: (iv0.id || 0) + 1 };
@@ -1402,8 +1404,8 @@ CW.extend(CW.Clone.prototype, {
     }
 
     const iv = this.interval;
-    if (!iv.t_start) iv.t_start = msg.t;
-    if (!iv.z_start) iv.z_start = msg.z;
+    if (!iv.t_start && msg.t) iv.t_start = msg.t;
+    if (!iv.z_start && msg.z) iv.z_start = msg.z;
 
     let global_offset = this.frozen_to_global(cursor);
     
