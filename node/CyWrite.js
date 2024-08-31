@@ -1151,7 +1151,7 @@
         } else {
           this.frozen_cursor = { npd: this.tab_npd0(), offset: 0 };
         }
-        if (t.top_row !== undefined) this.top_row = t.top_row;
+        if (t.top_row !== undefined) this.top_row = t.top_row; else this.top_row=0;
 
         this.resize(true); // cursor is already frozen, don't freeze before resizing
       }
