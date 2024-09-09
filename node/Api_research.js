@@ -294,11 +294,11 @@ module.exports = function(CW) {
       if (iv.edge_id && iv0.edge_id && iv.edge_id !== iv0.edge_id) {
         jcount++;
 
-        if (iv.csns_ins.length) {
+        if (iv.csns_ins && iv.csns_ins.length) {
           let first_csn = iv.csns_ins[0];
           if (!chars_info[first_csn]) chars_info[first_csn] = {};
           chars_info[first_csn].jdi = jcount;
-        } else if (iv.csns_del.length) {
+        } else if (iv.csns_del && iv.csns_del.length) {
           let first_csn = iv.csns_del[0];
           if (!chars_info[first_csn]) chars_info[first_csn] = {};
           chars_info[first_csn].jdd = jcount;

@@ -1793,7 +1793,7 @@ CW.accept_connection = function(conn) {
     }
   }
 
-  conn.on('data', _on_data);
+  if (conn) conn.on('data', _on_data);
 }
 
 /// utils
@@ -1927,6 +1927,7 @@ CW.utils.to_html = function(p, options) {
     for (var i=0; i<p.length; i++) html += CW.utils.to_html(p[i], options);
     return html;
   }
+  if (!p.text) return "<hr>"; // tab separator
   var html = options.no_styles ? ('<p align="'+p.align+'">') : ('<p class="paragraph ' + p.align + (p.ro ? ' ro' : '') + '">');
   var span_open;
   for (var i=0; i<p.text.length; i++) {
