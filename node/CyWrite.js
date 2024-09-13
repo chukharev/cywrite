@@ -1334,7 +1334,7 @@
       for (var i=0; i<this.clipboard.paragraphs.length; i++) {
         var p = this.clipboard.paragraphs[i];
         if (i > 0) {
-          this.split_paragraphs(cur_p.npd, cur_p.text.length - 1);
+          this.split_paragraphs(cur_p.npd, cur_off);
           cur_p = this.paragraphs[cur_p.npd+1];
           cur_off = 0;
         }
