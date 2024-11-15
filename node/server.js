@@ -12,7 +12,9 @@ const
   Async = require('async'),
   api_v1 = require('./Api_v1.js')(CW),
   api_research = require('./Api_research.js')(CW), // post-session viewer
+  api_worker = require('./Api_worker.js')(CW), // worker API
   expressBasicAuth = require('express-basic-auth');
+//  api_worker = require('./Api_worker.js')(CW);
 
 var app, server;
 
@@ -82,6 +84,7 @@ Async.series([
 
     app.use('/api/v1' + (CW.config.api_secret ? '/'+CW.config.api_secret : ''), api_v1);
     app.use('/api/research', api_research);
+    app.use('/api/worker' + (CW.config.workers.api_secret ? '/'+CW.config.workers.api_secret : ''), api_worker);
     app.use('/static', express.static(__dirname + '/static'));
 
     app.get('/', (req, res) => res.redirect(302, '/w/debug')); 

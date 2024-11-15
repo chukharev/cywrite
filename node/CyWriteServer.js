@@ -1796,6 +1796,15 @@ CW.accept_connection = function(conn) {
   if (conn) conn.on('data', _on_data);
 }
 
+
+// worker
+
+CW.worker_on_job_finished = function(job, result) {
+  // Process the job result (implementation needed)
+  console.log(`%%%%% Job finished:`, job, `Result:`, result);
+}
+
+
 /// utils
 
 CW.utils = new Object;

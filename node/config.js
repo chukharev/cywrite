@@ -1,11 +1,12 @@
 var os = require('os');
 
 module.exports = {
-  node_id: '7100',
+  node_id: '7200',
+  port: 9998,
   features: {
     hunspell: false, // fixme
     analyze: false, // fixme
-    prowrite: false // fixme
+    prowrite: true
   },
   delays: {
     heartbeat: 25000,    // server will send heartbeat 'ping' to client every 25 sec
@@ -20,12 +21,31 @@ module.exports = {
     analyze_loaded_paragraphs: 1000,
     analyze_sentence: 1000
   },
+  workers: {
+    timeout_long_polling: 10000,
+    worker_types: {
+      jens_script: {
+        isStateful: true,
+        doNotAssignTokensAfter: 5000,
+        treatAsDeadAfter: 10000,
+      },
+      omar_script: {
+        isStateful: false,
+        staleTime: 5000,
+        doNotAssignTokensAfter: 4000,
+        treatAsDeadAfter: 6000,
+      }
+    },
+    //api_secret: 'sdkfsfjskld' - in a production environment, add an api_secret here so that the endpoint URLs are like /api/worker/<api_secret>/register, etc.
+  },
   dir_current: __dirname + '/cur',
   dir_archive: __dirname + '/arc',
   dir_graph: __dirname + '/graph',
   dir_summary: __dirname + '/summary',
   dir_logs: __dirname + '/logs',
-  log_level_console: '>>>'
+  log_level_console: '>>>',
+  log_level_file: '>>>',
+//  api_secret: 'MIfnu5v8yt'
 };
 
 exports = module.exports;
