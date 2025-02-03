@@ -83,7 +83,7 @@ module.exports = function(CW) {
 
         // mark the worker as dead (instant deletion might cause iteration issues within the map)
         deadWorkers.push(workerId);
-        console.log(`############### Stale for ${staleFor} #################`);
+        CW.log('debug', 'worker is dead', { workerId: workerId, staleFor: staleFor });
       }
       // mark the worker as unavailable if it has been stale for a while
       else if (staleFor > worker.worker_type.doNotAssignTokensAfter) {
@@ -95,7 +95,6 @@ module.exports = function(CW) {
 
     // remove the dead workers
     deadWorkers.forEach(workerId => {
-      console.log(`############### Worker ${workerId} is being deleted #################`);
       delete workers[workerId];
     });
 
@@ -136,7 +135,7 @@ module.exports = function(CW) {
         // send the job to the worker
         // FOR NOW: sending the entire 'job' object
         worker.current_job = job.job_id;
-        worker.current_request.res.json({ result: 'Successfully retrieved a job', job });
+        worker.current_request.res.json({ result: 'job', job });
         clearTimeout(worker.current_request.timeout);
         delete worker.current_request;
         job.state = 'processing';
@@ -203,7 +202,7 @@ module.exports = function(CW) {
       is_available: true
     };
     
-    res.json({ result: 'ok', worker_id: workerId });
+    res.json({ result: 'register_ok', worker_id: workerId });
 
     // Monitor workers health
     monitorWorkersHealth();
@@ -218,7 +217,7 @@ module.exports = function(CW) {
     const worker = workers[workerId];
 
     if (!worker) {
-      return res.json({ error: 'no_worker' });
+      return res.json({ error: 'wrong_worker' });
     }
 
     // Handle existing long-polling requests
@@ -260,7 +259,7 @@ module.exports = function(CW) {
     const jobId = req.params.job_id;
     const job = jobs.find(job => job.job_id === jobId);
     if (!job) {
-      res.json({ result: 'Token (session) not found'}); // not error because the submission is successful
+      res.json({ result: 'wrong_job_id'}); // not error because the submission is successful
     } else {  
       // delete the job from jobs list
       jobs = jobs.filter(job => job.job_id !== jobId);
@@ -302,7 +301,7 @@ module.exports = function(CW) {
    */
   router.route('/get_job_queue').get((req, res) => {
     if(!jobs){
-      return res.json({error: 'The queue is null'});
+      return res.json({error: 'no_queue'});
     } else {
       res.json(jobs);
     }
@@ -314,7 +313,7 @@ module.exports = function(CW) {
    */
   router.route('/get_workers').get((req, res) => {
     if(!workers){
-      return res.json({error: 'The workers list is null'});
+      return res.json({error: 'no_workers'});
     } else {
       res.json(workers);
     }
@@ -325,7 +324,7 @@ module.exports = function(CW) {
    */
   router.route('/get_token_to_worker_mapping').get((req, res) => {
     if(!tokenToWorker){
-      return res.json({error: 'The token to worker mapping is null'});
+      return res.json({error: 'no_mapping'});
     } else {
       res.json(tokenToWorker);
     }

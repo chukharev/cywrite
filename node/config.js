@@ -6,7 +6,7 @@ module.exports = {
   features: {
     hunspell: false, // fixme
     analyze: false, // fixme
-    prowrite: true
+    prowrite: false // fixme
   },
   delays: {
     heartbeat: 25000,    // server will send heartbeat 'ping' to client every 25 sec
@@ -24,14 +24,13 @@ module.exports = {
   workers: {
     timeout_long_polling: 10000,
     worker_types: {
-      jens_script: {
+      worker1: {
         isStateful: true,
         doNotAssignTokensAfter: 5000,
         treatAsDeadAfter: 10000,
       },
-      omar_script: {
+      worker2: {
         isStateful: false,
-        staleTime: 5000,
         doNotAssignTokensAfter: 4000,
         treatAsDeadAfter: 6000,
       }

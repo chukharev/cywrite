@@ -132,9 +132,12 @@ CW.extend(CW.Clone.prototype, {
       that.db3_all('select * from document where kind=?;', ['initial'], function(err, rows) {
         if (!rows || !rows.length) return that.shutdown();
         var doc = JSON.parse(rows[0].json);
+        
         that.set_paragraphs(doc.paragraphs);
         that.set_tabs(doc.tabs);
         that.csn = doc.csn;
+        that.trigger_hooks('document_loaded');
+
         that.db3_all('select * from act order by z desc limit 1;', function(err, rows) {
           if (!rows.length) return that.shutdown();
           that.broadcast_data.scope = {z9:rows[0].z, t9:rows[0].t};
@@ -543,6 +546,8 @@ CW.extend(CW.Clone.prototype, {
 
     that.set_tabs(that.config.tabs ? that.config.tabs : (old_document && old_document.tabs) ? old_document.tabs : []);
     if (!that.config.template && old_document && old_document.csn) that.csn = old_document.csn+1;
+
+    that.trigger_hooks('document_loaded');
 
     let msg = new Object();
     let snapshot = that.snapshot({no_props:1, no_csns:1, no_cursor:1});
@@ -1330,6 +1335,7 @@ CW.extend(CW.Clone.prototype, {
           if (word_found) eye.fixated_word = word_found[0];
           
           let sentence_found = paragraph_text.match(/[^.?!]*<-->[^.?!]*[.?!]*/);
+
           if (sentence_found) eye.fixated_sentence = sentence_found[0];
 
           this.do_sustained_reading_analysis();
@@ -1794,14 +1800,6 @@ CW.accept_connection = function(conn) {
   }
 
   if (conn) conn.on('data', _on_data);
-}
-
-
-// worker
-
-CW.worker_on_job_finished = function(job, result) {
-  // Process the job result (implementation needed)
-  console.log(`%%%%% Job finished:`, job, `Result:`, result);
 }
 
 

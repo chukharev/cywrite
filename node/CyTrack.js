@@ -36,7 +36,9 @@
   }
 
   CW.Track = function(w) {
-    //CW.extend(this, w);
+    CW.extend(this, w);
+
+    console.log(this);
 
     this.status = 'off';
 
@@ -47,24 +49,25 @@
       if (that.display) that.display.active_window = w;
     }, -1, 1);
 
+    try {
+      var settings = fs.readFileSync('cytrack_settings.json');
+      if (settings) {
+        settings = JSON.parse(settings);
+        for (el in settings) if (!(el in this)) this[el] = settings[el]; // only allow overriding settings that are not set
+      }
+    } catch(e) {
+    }
+
     return this;
   }
 
   CW.Track.prototype = {
     attach: function(display) {
-      try {
-        var settings = fs.readFileSync('cytrack_settings.json');
-        if (settings) {
-          settings = JSON.parse(settings);
-          CW.extend(this, settings);
-        }
-      } catch(e) {
-      }
-
       this.display = display;
+      var that = this;
+
       if (this.display_settings) CW.extend(this.display, this.display_settings);
 
-      var that = this;
       this.display.log = function() {
         var out = Array();
         for (var i=0; i<arguments.length; i++) {
@@ -128,6 +131,12 @@
       .on('error', function() {
         delete that.gp_socket;
         console.log('************** Gazepoint is starting now...');
+
+        if (that.gp_cam_update_rate) {
+          var reg_command = 'reg add "HKCU\\SOFTWARE\\Gazepoint-GazeTechnologyPlatform\\Gazepoint\\GazepointProfileID" /v "_cam_update_rate" /t REG_SZ /d "'+that.gp_cam_update_rate+'" /f';
+          child_process.exec(reg.command);
+        }
+
         var exec_path = '\\gazepoint\\gazepoint\\bin\\gazepoint.exe';
         var exec_path_64 = '\\gazepoint\\gazepoint\\bin64\\gazepoint.exe';
         var try_path = function(path, next) { fs.exists(path, function(yes) { if (yes) { child_process.execFile(path); CW.async(that, 'gp_connect', 10000); } else if (next) next(); return; });};
@@ -152,6 +161,10 @@
       this.button.removeClass('btn-info btn-default').addClass('btn-success');
       this.gp_socket.on('close', function() { that.gp_failed(); }).on('data', function(d) { that.gp_data(d) });
       that.display.socket.send('eye', { k: 'tracker', data: { system: 'gazepoint' } });
+      if (this.gp_screen_size) {
+        this.gp_send('<SET ID="SCREEN_SIZE" X="'+this.gp_screen_size.x+'" Y="'+this.gp_screen_size.y+'" WIDTH="'+this.gp_screen_size.width+'" HEIGHT="'+this.gp_screen_size.height+'" />');
+      }
+        
       this.gp_send(
         '<SET ID="IMAGE_TX" ADDRESS="'+UDP_IP+'" PORT="'+UDP_PORT+'" />',
         '<SET ID="ENABLE_SEND_IMAGE" STATE="1" />',
@@ -223,10 +236,10 @@
         } else if (tag_name == 'ACK' && values.id == 'SCREEN_SIZE') {
           that.screen_size = values;
         } else if (tag_name == 'REC' && that.calibration && that.screen_size && that.screen_delta) {
-          if ('bpogx' in values) {
+          if ('bpogx' in values && !(that.gp_sample_throttle && that.gp_sample_throttle <= -2)) {
             var is_ignore = 0;
             if (!that.gp_last_s) that.gp_last_s = 0;
-            if (that.gp_sample_throttle && values.time > that.gp_last_s && values.time - that.gp_last_s < that.gp_sample_throttle/1000) is_ignore = 1;
+            if (that.gp_sample_throttle && that.gp_sample_throttle > -1 && values.time > that.gp_last_s && values.time - that.gp_last_s < that.gp_sample_throttle/1000) is_ignore = 1;
             else that.gp_last_s = values.time;
 
             if (values.bpogv) {

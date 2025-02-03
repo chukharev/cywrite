@@ -180,6 +180,9 @@
         if (msg.set_config) {
           this.config = msg.set_config;
           if (this.config.label) document.title = this.config.label;
+          if (this.config.display) {
+            for (let param of ['font_size', 'interline']) if (param in this.config.display) this[param] = this.config.display[param];
+          }
         }
         if (msg.paragraphs) {
           this.init_client();
@@ -252,6 +255,7 @@
     is_readonly: function() { return !!(this.undoing || this.disconnect_status == 'err') },
 
     init_client: function() {
+      console.log('init_client'); //zhenya
       if (this.paragraphs) return;
       var t=this;
 
@@ -406,7 +410,7 @@
       
       // CyTrack
       if (CW.Track) {
-        this.track = new CW.Track();
+        this.track = new CW.Track(this.config.track);
         this.track.attach(this);
       }
     },
