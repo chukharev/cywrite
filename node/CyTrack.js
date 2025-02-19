@@ -38,8 +38,6 @@
   CW.Track = function(w) {
     CW.extend(this, w);
 
-    console.log(this);
-
     this.status = 'off';
 
     that = this;
@@ -134,7 +132,7 @@
 
         if (that.gp_cam_update_rate) {
           var reg_command = 'reg add "HKCU\\SOFTWARE\\Gazepoint-GazeTechnologyPlatform\\Gazepoint\\GazepointProfileID" /v "_cam_update_rate" /t REG_SZ /d "'+that.gp_cam_update_rate+'" /f';
-          child_process.exec(reg.command);
+          child_process.exec(reg_command);
         }
 
         var exec_path = '\\gazepoint\\gazepoint\\bin\\gazepoint.exe';
@@ -194,6 +192,7 @@
 
     timeout_calibrating: function() {
       this.is_calibrating = false;
+      this.app_calibration = false;
       this.display.socket.send('eye', { k: 'cal_timeout' });
     },
       
@@ -228,7 +227,20 @@
         } else if (tag_name == 'ACK' && values.id == 'CALIBRATE_RESULT_SUMMARY') {
           that.calibration = values;
           if (that.has_calibrated) {
-            bootbox.alert('<div style="text-align:center;">Calibration completed<div style="font-size: 100px;">'+values.ave_error+'</div></div>');
+            if (that.app_calibration && that.gp_auto_accept) {
+              that.gp_send('<SET ID="CALIBRATE_SHOW" STATE="0" />');
+              that.gp_send('<SET ID="TRACKER_DISPLAY" STATE="0" TRAY="1" />');
+              if (values.ave_error <= that.gp_auto_accept) {
+                bootbox.alert('<div style="text-align:center;"><div style="font-size:100px;"><i class="fa fa-smile-o"></i></div><div style="font-size:30px;"><b>Calibration complete</b> ('+values.ave_error+')</div><p>Now get ready to begin your writing task<p>Click "OK" to start</div>', function() { setTimeout(function() {$('.cw-btn-start').click();}, 0) });
+              } else {
+                bootbox.dialog({ title: 'Calibration complete', message: '<div style="text-align:center;">The calibration procedure needs to be repeated. (If you have already tried calibration more than once, and you keep getting this message, please ask the researcher for help.)<div style="font-size: 75px;">'+values.ave_error+'</div><p>Make sure that you can see the reflection of your nose in the eye-tracker below the screen. Click "Repeat" to repeat the calibration procedure, and make sure to closely watch the moving circle.',
+                buttons: {
+                  retry: { label: "Repeat", className: "btn-success", callback: function() { that.gp_btn_clicked() } }
+                }});
+              }
+            } else
+              bootbox.alert('<div style="text-align:center;">Calibration completed<div style="font-size: 100px;">'+values.ave_error+'</div></div>');
+            that.app_calibration = false;
           }
           var d0 = CW.extend({}, { k: 'cal', data: values });
           delete that.gp_last_s;
@@ -338,6 +350,7 @@
         _shuffle(a);
         this.gp_send.apply(this, a);
         this.gp_send('<SET ID="CALIBRATE_SHOW" STATE="1" />', '<SET ID="CALIBRATE_START" STATE="1" />');
+        this.app_calibration = true;
       }
     },
 

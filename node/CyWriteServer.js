@@ -132,12 +132,10 @@ CW.extend(CW.Clone.prototype, {
       that.db3_all('select * from document where kind=?;', ['initial'], function(err, rows) {
         if (!rows || !rows.length) return that.shutdown();
         var doc = JSON.parse(rows[0].json);
-        
         that.set_paragraphs(doc.paragraphs);
         that.set_tabs(doc.tabs);
         that.csn = doc.csn;
         that.trigger_hooks('document_loaded');
-
         that.db3_all('select * from act order by z desc limit 1;', function(err, rows) {
           if (!rows.length) return that.shutdown();
           that.broadcast_data.scope = {z9:rows[0].z, t9:rows[0].t};
@@ -1335,7 +1333,6 @@ CW.extend(CW.Clone.prototype, {
           if (word_found) eye.fixated_word = word_found[0];
           
           let sentence_found = paragraph_text.match(/[^.?!]*<-->[^.?!]*[.?!]*/);
-
           if (sentence_found) eye.fixated_sentence = sentence_found[0];
 
           this.do_sustained_reading_analysis();
@@ -1802,7 +1799,6 @@ CW.accept_connection = function(conn) {
   if (conn) conn.on('data', _on_data);
 }
 
-
 /// utils
 
 CW.utils = new Object;
@@ -1934,7 +1930,7 @@ CW.utils.to_html = function(p, options) {
     for (var i=0; i<p.length; i++) html += CW.utils.to_html(p[i], options);
     return html;
   }
-  if (!p.text) return "<hr>"; // tab separator
+  if (!("text" in p)) return "<hr>"; // tab separator
   var html = options.no_styles ? ('<p align="'+p.align+'">') : ('<p class="paragraph ' + p.align + (p.ro ? ' ro' : '') + '">');
   var span_open;
   for (var i=0; i<p.text.length; i++) {

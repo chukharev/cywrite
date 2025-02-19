@@ -14,6 +14,9 @@
       t[id] = $('#'+id1);
     },
     extend: typeof window === 'undefined' ? require('extend') : jQuery.extend,
+    
+    // if no fn, then clear all timeouts for object
+    // if no numberical timeout, then clear but don't schedule
     async: function(obj, fn, timeout) {
       if (!fn) {
         for (o in obj) {
@@ -30,10 +33,12 @@
         delete obj[fn_timeout];
       }
       var the_obj = obj;
-      obj[fn_timeout] = setTimeout(function(){
-        delete the_obj[fn_timeout];
-        if (!the_obj.deleted && !(the_obj.display && the_obj.display.deleted) && the_obj[fn]) the_obj[fn].call(the_obj);
-      }, timeout);
+      if (typeof timeout === "number") {
+        obj[fn_timeout] = setTimeout(function(){
+          delete the_obj[fn_timeout];
+          if (!the_obj.deleted && !(the_obj.display && the_obj.display.deleted) && the_obj[fn]) the_obj[fn].call(the_obj);
+        }, timeout);
+      }
     },
 
     is_empty_object: function(obj) {
@@ -267,7 +272,7 @@
       this.toolbar.append(
           '<div class="btn-group tab-buttons"></div>'
         +'<div class="btn-group"><button type="button" class="btn btn-default fa fa-undo"></button><button type="button" class="btn btn-default fa fa-repeat"></button></div>'
-        +'<div class="btn-group cw-btn-edit"><button type="button" class="btn btn-default fa fa-cut" title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-copy"  title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-paste"  title="Copy & paste only works within the editor."></button></div>'
+        +'<div class="btn-group cw-btn-edit"><button type="button" class="btn btn-default fa fa-cut" title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-copy" title="Copy & paste only works within the editor."></button><button type="button" class="btn btn-default fa fa-paste"  title="Copy & paste only works within the editor."></button></div>'
         +'<div class="btn-group cw-btn-style"><button type="button" class="btn btn-default fa fa-bold"></button><button type="button" class="btn btn-default fa fa-italic"></button><button type="button" class="btn btn-default fa fa-underline"></button></div>'
         +'<div class="btn-group cw-btn-align"><button type="button" class="btn btn-default fa fa-align-left"></button><button type="button" class="btn btn-default fa fa-align-center"></button><button type="button" class="btn btn-default fa fa-align-right"></button></div>'
         +'<div class="btn-group"><button type="button" class="btn btn-default cw-btn-show-special">&para;</button><button type="button" class="btn btn-default fa fa-plus"></button><button type="button" class="btn btn-default fa fa-minus"></button></div>'
@@ -455,7 +460,7 @@
       }
 
       if (actions.click) {
-        if (actions.move && !this.block_start) this.block_start = this.cursor_to_frozen();
+        if (actions.move && !this.block_start && !this.is_no_blocks()) this.block_start = this.cursor_to_frozen();
         if (!actions.move && this.block_start) delete this.block_start;
         this.cur_col = xy.cur_col;
         this.cur_row = xy.cur_row;
@@ -856,6 +861,15 @@
       return npt;
     },
 
+    is_no_blocks: function() {
+      return (this.tabs[this.tab].features && /-block/.test(this.tabs[this.tab].features));
+    },
+    
+    is_no_copy_paste: function() {
+      return (this.tabs[this.tab].features && /-copy/.test(this.tabs[this.tab].features));
+    },
+
+
   // u - up, d - down, l - left, r - right, h - home, e - end, pu - page up, pd - page down
   // dh - document home, de - document end, s - scroll, m - mouse click
   // thaw - from offset_to_cursor
@@ -863,39 +877,41 @@
     move_cursor: function(where) {
       var dx=0, dy=0;
       if (!where) where = '';
+      
+      var shift_pressed = this.pressed_keys[16];
 
-      if (where && where != 'm' && where != 's' && where != 'thaw') {
-        if (this.pressed_keys[16] && !this.block_start) this.block_start = this.cursor_to_frozen();
-        if (!this.pressed_keys[16] && this.block_start) delete this.block_start;
+      if (!this.is_no_blocks() && where && where != 'm' && where != 's' && where != 'thaw') {
+        if (shift_pressed && !this.block_start) this.block_start = this.cursor_to_frozen();
+        if (!shift_pressed && this.block_start) delete this.block_start;
       }
 
-      if (where == 'u') dy=-1;
-      else if (where == 'd') dy=1;
-      else if (where == 'l') dx=-1;
-      else if (where == 'r') dx=1;
-      else if (where == 'pu') dy=-this.rows-1;
-      else if (where == 'pd') dy=this.rows-1;
-      else if (where == 'h')
+      if (where === 'u') dy=-1;
+      else if (where === 'd') dy=1;
+      else if (where === 'l') dx=-1;
+      else if (where === 'r') dx=1;
+      else if (where === 'pu') dy=-this.rows-1;
+      else if (where === 'pd') dy=this.rows-1;
+      else if (where === 'h')
         this.cur_col = this.cur_row_padding();
-      else if (where == 'e')
+      else if (where === 'e')
         this.cur_col = this.cur_row_padding()+this.cur_row_length()-1;
-      else if (where == 'dh')
+      else if (where === 'dh')
         this.top_row = this.cur_row = this.cur_col = 0;
-      else if (where == 'de' || where == 'all') {
+      else if (where === 'de' || (where === 'all' && !this.is_no_blocks())) {
         this.top_row = this.tab_last_row() - this.rows + 1;
         this.cur_row = this.rows-1;
         this.cur_col = this.cols-1;
       }
-      if (where == 'all') {
+      if (where === 'all' && !this.is_no_blocks()) {
         this.block_start = { npd: this.tab_npd0(), offset: 0 };
       }
 
 
-      if (dx || where == 'm') this.cur_col = this.cur_col_shown();
+      if (dx || where === 'm') this.cur_col = this.cur_col_shown();
       if (dy) this.cur_row+=dy;
       if (dx) this.cur_col+=dx;
       if (this.cur_col >= this.cols || dx>0 && this.cur_col >= this.cur_row_length()+this.cur_row_padding()) {
-        if (this.cur_row + this.top_row == this.tab_last_row()) {
+        if (this.cur_row + this.top_row === this.tab_last_row()) {
           this.cur_col -= dx;
         } else {
           this.cur_col = 0;
@@ -1157,6 +1173,13 @@
         }
         if (t.top_row !== undefined) this.top_row = t.top_row; else this.top_row=0;
 
+        if (this.toolbar) {
+          if (this.is_no_copy_paste()) {
+            this.toolbar.find('.fa-copy').add('.fa-cut').add('.fa-paste').hide();
+          } else {
+            this.toolbar.find('.fa-copy').add('.fa-cut').add('.fa-paste').show();
+          }
+        }
         this.resize(true); // cursor is already frozen, don't freeze before resizing
       }
     },
@@ -1219,11 +1242,11 @@
         var r = p.rows[nrp];
         var left = p.row_padding(nrp);
         var right = left+p.rows[nrp].text.length;
-        if (cur0.npd == npd && cur0.offset > r.op0) {
+        if (cur0.npd === npd && cur0.offset > r.op0) {
           left += cur0.offset - r.op0;
           if (left > right) continue;
         }
-        if (cur1.npd == npd && cur1.offset < r.op1) {
+        if (cur1.npd === npd && cur1.offset < r.op1) {
           right -= r.op1 - cur1.offset;
           if (right < left) continue;
         }
@@ -1313,6 +1336,7 @@
     copy_block: function(cut) {
       this.focus();
       if (this.is_readonly()) return;
+      if (this.is_no_copy_paste()) return;
       var block = this.get_block();
       if (!block) return false;
       this.clipboard = { z: this.z(), paragraphs: new Array()};
@@ -1330,7 +1354,7 @@
 
     paste_block: function() {
       this.focus();
-      if (this.is_readonly() || !this.clipboard) return;
+      if (this.is_readonly() || !this.clipboard || this.is_no_copy_paste()) return;
       this.remove_block();
       this.transaction = this.z();
       var cur_p = this.cur_paragraph();

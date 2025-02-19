@@ -57,13 +57,13 @@ module.exports = function(CW) {
       const staleFor = now - worker.stale_since;
 
       // kill the worker if it is stale for too long
-      if (staleFor > worker.worker_type.treatAsDeadAfter) {
+      if (!worker.stale_since || staleFor > workerTypes[worker.worker_type].treatAsDeadAfter) {
         // for stateful workers, remove the jobs of all assigned tokens
         for (const token in worker.assignedTokens) {
           // remove the jobs related to the token
           jobs = jobs.filter(job => {
             if (job.token === token) {
-              if(job.worker_type.isStateful){
+              if(workerTypes[job.worker_type].isStateful){
                 // call the callback with an error
                 job.result_callback(job, { error: 'worker_dead' });
                 return false;
@@ -83,10 +83,10 @@ module.exports = function(CW) {
 
         // mark the worker as dead (instant deletion might cause iteration issues within the map)
         deadWorkers.push(workerId);
-        CW.log('debug', 'worker is dead', { workerId: workerId, staleFor: staleFor });
+        //CW.log('debug', 'worker is dead', { workerId: workerId, staleFor: staleFor });
       }
       // mark the worker as unavailable if it has been stale for a while
-      else if (staleFor > worker.worker_type.doNotAssignTokensAfter) {
+      else if (!staleFor > workerTypes[worker.worker_type].doNotAssignTokensAfter) {
         worker.is_available = false;
       } else {
         worker.is_available = true;
@@ -128,7 +128,7 @@ module.exports = function(CW) {
     }
 
     for (const worker of sortedWorkers) {
-      if (worker.worker_type.isStateful && worker.is_available && worker.current_request) {
+      if (worker.worker_type === job.worker_type && workerTypes[worker.worker_type].isStateful && worker.is_available && worker.current_request) {
         worker.assignedTokens.push(job.token);
         tokenToWorker[job.token] = worker.worker_id;
 
@@ -148,7 +148,7 @@ module.exports = function(CW) {
     // stateless workers will have their assigned tokens as empty
     // so assign a job to a random stateless available worker
     for (const worker of sortedWorkers) {
-      if (!worker.worker_type.isStateful && worker.is_available && worker.current_request) {
+      if (worker.worker_type === job.worker_type && !workerTypes[worker.worker_type].isStateful && worker.is_available && worker.current_request) {
 
         // send the job to the worker
         // FOR NOW: sending the entire 'job' object
@@ -170,7 +170,7 @@ module.exports = function(CW) {
       if(job.state !== 'added'){
         continue;
       }
-      if(job.worker_type.isStateful){
+      if(workerTypes[job.worker_type].isStateful){
         assignStatefulJob(job, sortedWorkers);
       } else {
         assignStatelessJob(job, sortedWorkers);
@@ -196,7 +196,7 @@ module.exports = function(CW) {
     workers[workerId] = {
       worker_id: workerId,
       stale_since: Date.now(),
-      worker_type: workerTypes[workerType],
+      worker_type: workerType,
       assignedTokens: [],
       current_job: null,
       is_available: true
@@ -264,11 +264,17 @@ module.exports = function(CW) {
       // delete the job from jobs list
       jobs = jobs.filter(job => job.job_id !== jobId);
 
+      // ??? is this needed ???
+
+      /*
+
       if(tokenToWorker[job.token]){
         const worker = workers[tokenToWorker[job.token]];
         worker.current_job = null;
         worker.stale_since = Date.now(); // update the stale time
       }
+
+      */
 
       // FOR NOW: result is the entire req.body
       job.result_callback(job, req.body);
@@ -344,7 +350,11 @@ module.exports = function(CW) {
     monitorWorkersHealth();
     
     job.state = 'added';
-    job.worker_type = workerTypes[job.worker_type];
+    const worker_type_obj = workerTypes[job.worker_type];
+    if (!worker_type_obj) {
+      return job.result_callback(job, { error: 'wrong_worker_type' });
+    }
+    
     jobs.push(job);
 
     // Assign the jobs to available workers
