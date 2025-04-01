@@ -258,6 +258,7 @@ module.exports = function(CW) {
     // Process the result submitted in req.body (implementation needed)
     const jobId = req.params.job_id;
     const job = jobs.find(job => job.job_id === jobId);
+    console.log('SUBMIT_RESULT ', jobId, job);
     if (!job) {
       res.json({ result: 'wrong_job_id'}); // not error because the submission is successful
     } else {  
@@ -313,6 +314,19 @@ module.exports = function(CW) {
     }
   });
 
+  function stringifyWithCircularReferences(obj) {
+    const seen = new Set();
+    return JSON.stringify(obj, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) {
+          return '[Circular]'; // or you can return null, or any placeholder string you prefer
+        }
+        seen.add(value);
+      }
+      return value;
+    });
+  }
+
   /**
    * Route to get the list of the current workers.
    * Returns a json object containing the workers.
@@ -321,7 +335,7 @@ module.exports = function(CW) {
     if(!workers){
       return res.json({error: 'no_workers'});
     } else {
-      res.json(workers);
+      res.json(JSON.parse(stringifyWithCircularReferences(workers)));
     }
   });
 

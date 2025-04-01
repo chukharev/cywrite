@@ -88,7 +88,13 @@ CW.Clone = function(p) {
   if (CW.config.delays) this.delays = CW.extend({}, CW.config.delays);
   if (this.role !== 'research') CW.async(this, 'inactive', this.delays.inactive);
 
-  if (CW.ProWrite) CW.ProWrite.init(this);
+  if (CW.config.plugins) {
+    for (let plugin of CW.config.plugins) {
+      if (plugin in CW && CW[plugin].init) {
+        CW[plugin].init(this);
+      }
+    }
+  }
 
   return this;
 }
@@ -1505,6 +1511,7 @@ CW.extend(CW.Clone.prototype, {
 
       iv0.cursor_moved = !!iv0.cursor_moved;
       iv0.cursor_returned = !!iv0.cursor_returned;
+      iv0.tab = this.tab;
 
       // console.log('*************************************************', this.cur_segment);
       this.trigger_hooks('interval_end', iv0);
@@ -1982,6 +1989,8 @@ CW.utils.open_summary_db3 = function(callback) {
 };
 
     
-if (CW.config.features.prowrite) {
-  (require('./ProWrite.js'))(CW);
+if (CW.config.plugins) {
+  for (let plugin of CW.config.plugins) {
+    CW[plugin] = (require('./'+plugin+'.js'))(CW);
+  }
 }
