@@ -13,7 +13,7 @@ function process_token(token, cb) {
     role: 'research',
     original_token: token,
     log_level_console: 'error',
-    throttle_eye: 10000, // to effectively remove eye samples (only consider 1 sample per 10 seconds)
+    throttle_eye: 0 // 10000, // to effectively remove eye samples (only consider 1 sample per 10 seconds)
   });
 
   r.register_hook('interval_end', (i) => {

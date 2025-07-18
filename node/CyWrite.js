@@ -408,7 +408,11 @@
       this.scrollbar
         .mousedown($.proxy(this.mouse_handler, this))
         .mouseup($.proxy(this.mouse_handler, this))
-        .mousemove($.proxy(this.mouse_handler, this));
+        .mousemove($.proxy(this.mouse_handler, this))
+        .on('contextmenu', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        });
 
       this.focus();
       this.blink_cursor(true);
@@ -449,12 +453,29 @@
 
       if (this.track && this.track.mouse_handler) this.track.mouse_handler(e);
 
+      // right mouse
+      if (this.config.emulate_eye && e.which === 3) {
+        if (e.type === 'mousedown') {
+          this.emulated_fix_start = Date.now();
+          const fix = CW.extend(xy, {k:'fix', start: this.emulated_fix_start});
+          this.socket.send('eye', fix);
+        } else if (e.type === 'mouseup') {
+          const fix = CW.extend(xy, {k:'end', start: this.emulated_fix_start, dur: Date.now() - this.emulated_fix_start});
+          this.socket.send('eye', fix);
+        }
+
+        e.preventDefault()
+        e.stopPropagation();
+        return;
+      }
+
+
       var actions = new Object();
 
-      if (e.type == 'mousemove' && this.left_button_down) actions.click = true;
-      if (e.type == 'mousemove' || this.pressed_keys[16]) actions.move = true;
+      if (e.type === 'mousemove' && this.left_button_down) actions.click = true;
+      if (e.type === 'mousemove' || this.pressed_keys[16]) actions.move = true;
 
-      if (e.type == 'mousedown' && xy.x <= this.viewport_width) {
+      if (e.type === 'mousedown' && xy.x <= this.viewport_width) {
         if (e.which === 1) this.left_button_down = true;
         actions.click = true;
       }
@@ -470,7 +491,7 @@
         this.move_cursor('m');
       }
       
-      if (e.type == 'mouseup') {
+      if (e.type === 'mouseup') {
         if (e.which === 1) this.left_button_down = false;
       }
 

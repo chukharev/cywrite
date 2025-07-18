@@ -5,9 +5,9 @@ module.exports = {
   port: 9998,
   features: {
     hunspell: false, // fixme
-    analyze: false, // fixme
-    prowrite: false // fixme
+    analyze: false // fixme
   },
+  plugins: [ 'SourceWrite_RST' ],
   delays: {
     heartbeat: 25000,    // server will send heartbeat 'ping' to client every 25 sec
     inactive: 5*60000, // wait for 5 minutes for connection restoring
@@ -37,6 +37,7 @@ module.exports = {
     },
     //api_secret: 'sdkfsfjskld' - in a production environment, add an api_secret here so that the endpoint URLs are like /api/worker/<api_secret>/register, etc.
   },
+  
   dir_current: __dirname + '/cur',
   dir_archive: __dirname + '/arc',
   dir_graph: __dirname + '/graph',
