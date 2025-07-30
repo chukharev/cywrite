@@ -84,7 +84,8 @@ function rst_annotate_tab_with_file(clone, tab_id, rst_file_lines) {
   let normalized_string_clone = '';
 
   for (let p of clone.paragraphs) {
-    if (p.tab !== tab_id || /^\s*Text \d+\s*\$$/.test(p.text)) {
+    if (p.tab !== tab_id || p.align !== 'left') {
+      // skip paragraphs that are not left-aligned because they are the title and the author's name
       clone_global_offset += p.text.length;
       continue;
     }
@@ -120,6 +121,7 @@ function rst_annotate_tab(clone, tab_id, sources) {
         source: source,
         edus: result
       };
+      // console.log(tab_id + ' annotated with ' + source);
       break;
     }
   }
